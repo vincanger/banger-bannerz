@@ -28,6 +28,35 @@ model User {
   contactFormMessages       ContactFormMessage[]
   tasks                     Task[]
   files                     File[]
+  brandThemes               BrandTheme[]
+  generatedImageData        GeneratedImageData[]
+}
+
+model BrandTheme {
+  id                        String          @id @default(uuid())
+  createdAt                 DateTime        @default(now())
+
+  user                      User            @relation(fields: [userId], references: [id])
+  userId                    String
+
+  colorScheme               String[]
+  preferredStyles           String[]
+  mood                      String[]
+  lighting                  String[]
+}
+
+model GeneratedImageData {
+  id                        String          @id @default(uuid())
+  createdAt                 DateTime        @default(now())
+
+  url                       String
+  prompt                    String
+  seed                      Int
+  style                     String
+  resolution                String
+
+  user                      User            @relation(fields: [userId], references: [id])
+  userId                    String
 }
 
 model GptResponse {

@@ -79,6 +79,10 @@ app OpenSaaS {
     ]
   },
 
+  server: {
+    middlewareConfigFn: import { serverMiddlewareFn } from "@src/server/serverSetup",
+  },
+
   client: {
     rootComponent: import App from "@src/client/App",
   },
@@ -151,6 +155,13 @@ action updateUserById {
 }
 //#endregion
 
+//#region Editor
+route EditorRoute { path: "/editor", to: EditorPage }
+page EditorPage {
+  component: import Editor from "@src/editor/Editor"
+}
+//#endregion
+
 //#region Banner
 route BannerRoute { path: "/banner", to: BannerPage }
 page BannerPage {
@@ -159,12 +170,54 @@ page BannerPage {
 
 action generateBanner {
   fn: import { generateBanner } from "@src/banner/operations",
+  entities: [User, BrandTheme, GeneratedImageData]
+}
+
+action generatePromptFromTitle {
+  fn: import { generatePromptFromTitle } from "@src/banner/operations",
   entities: [User]
 }
 
 action generatePrompts {
   fn: import { generatePrompts } from "@src/banner/operations",
   entities: [User]
+}
+
+action generatePromptFromImage {
+  fn: import { generatePromptFromImage } from "@src/banner/operations",
+  entities: [User]
+}
+
+query getRecentGeneratedImageData {
+  fn: import { getRecentGeneratedImageData } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
+//#endregion
+
+//#region Brand Theme
+action upsertBrandTheme {
+  fn: import { upsertBrandTheme } from "@src/editor/components/brandThemeOperations",
+  entities: [User, BrandTheme]
+}
+
+action createBrandTheme {
+  fn: import { createBrandTheme } from "@src/editor/components/brandThemeOperations",
+  entities: [User, BrandTheme]
+}
+
+action updateBrandTheme {
+  fn: import { updateBrandTheme } from "@src/editor/components/brandThemeOperations",
+  entities: [User, BrandTheme]
+}
+
+query getBrandTheme {
+  fn: import { getBrandTheme } from "@src/editor/components/brandThemeOperations",
+  entities: [User, BrandTheme]
+}
+
+action deleteBrandTheme {
+  fn: import { deleteBrandTheme } from "@src/editor/components/brandThemeOperations",
+  entities: [User, BrandTheme]
 }
 //#endregion
 
