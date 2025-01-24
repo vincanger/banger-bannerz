@@ -9,6 +9,7 @@ import { useParams } from 'react-router-dom';
 import { GeneratedImageData } from 'wasp/entities';
 import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData } from 'wasp/client/operations';
 import { useAuth } from 'wasp/client/auth';
+import { Link } from 'wasp/client/router';
 
 export const EditImagePrompt: FC = () => {
   const { data: user } = useAuth();
@@ -49,7 +50,7 @@ export const EditImagePrompt: FC = () => {
               try {
                 if (!imagePromptData) return;
                 const newImage = await generateBanner({
-                  prompt: imagePromptData.prompt,
+                  centerInfoPrompt: imagePromptData.prompt,
                   seed: imagePromptData.seed,
                 });
                 setGeneratedImages((prev) => [newImage, ...prev]);
@@ -62,6 +63,11 @@ export const EditImagePrompt: FC = () => {
           >
             Generate Edit
           </button>
+          <Link to={`/image-overlay/:id`} params={{ id: imagePromptData.id }}>
+            <button className='mt-2 w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'>
+              Generate Overlay
+            </button>
+          </Link>
         </div>
       ) : (
         <div className='mb-4'>

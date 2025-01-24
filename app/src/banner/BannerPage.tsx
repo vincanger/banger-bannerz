@@ -40,7 +40,7 @@ const BannerPage: FC = () => {
               onClick={async () => {
                 try {
                   await generateBanner({ 
-                    prompt: 'test',
+                    centerInfoPrompt: 'test',
                   });
                 } catch (error) {
                   console.error('Failed to generate banner:', error);

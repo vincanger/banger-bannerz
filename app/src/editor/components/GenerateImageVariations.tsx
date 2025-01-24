@@ -26,7 +26,7 @@ export const GenerateImageVariations: FC<{ prompt: string }> = ({ prompt }) => {
 
           const promptPromises = promptVariations.variations.map((variation) => {
             return generateBanner({
-              prompt: variation.prompt + '. The picture should be in the style of ' + variation.style + ' with a ' + variation.mood + ' mood and ' + variation.lighting + ' lighting.',
+              centerInfoPrompt: variation.prompt + '. The picture should be in the style of ' + variation.style + ' with a ' + variation.mood + ' mood and ' + variation.lighting + ' lighting.',
             });
           });
 

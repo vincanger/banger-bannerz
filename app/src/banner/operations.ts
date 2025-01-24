@@ -1,5 +1,5 @@
 import type { GeneratedImageData, User } from 'wasp/entities';
-import type { GenerateBanner, GeneratePrompts, GeneratePromptFromImage, GeneratePromptFromTitle, GetRecentGeneratedImageData, GetGeneratedImageDataById } from 'wasp/server/operations';
+import type { GenerateBanner, GeneratePrompts, GeneratePromptFromImage, GeneratePromptFromTitle, GetRecentGeneratedImageData, GetGeneratedImageDataById, GetImageProxy } from 'wasp/server/operations';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
@@ -69,19 +69,21 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string },
     throw openai;
   }
 
-  const bannerInstructions = '"The center third of the image shows a series of minimal lines, almost like a sound wave, creating a subtle mountain range design. As the lines approach the edges of the other two thirds of the image, they fade out, leaving space on the sides of the image for text to be added post-generation."';
+  // const imageParts = 3
+  // const backgroundColor = 'black'
+  // const centerInfo = 'a minimalist series of lines, almost like a sound wave, creates a subtle mountain range design.';
+  // const imagePromptExample = `A striking image with a ${backgroundColor} background split in ${imageParts.toString()}, where in the center, ${centerInfo}. The details in the center third fade out as the reach the other two thirds of the image.`
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       {
         role: 'system',
-        content:
-          `You are an expert blog and social media image prompt engineer. You will be given a title or topic and your job is to create different image prompts that would be suitable for that post. Do not include any mention of text, words, brands, tools, or logos, as you will be penalized if you do. The prompts should not add text within the image, rather they should convey the concept of the post.`,
+        content: `You are an expert blog and social media image prompt engineer. You will be given a title or topic and your job is to create different image prompts in a single sentence that fit the title or topic. Do not include any mention of text, words, brands, or logos, as you will be penalized if you do. The prompts should not add text within the image.`,
       },
       {
         role: 'user',
-        content: `Please create 3 different image prompt concepts for a social media or blog post with the title: ${title}. Do not include any mention of text, words, brands, tools, or logos, as you will be penalized if you do.`,
+        content: `Please create three different image prompts for the center part of an image for a social media or blog post with the title: ${title}. Make them obviously relate to the title, so that the image is easy to understand. Do not make them too abstract. Only return the prompt for the center content of the image. Do not include information about the image style, mood, or lighting.  Do not include any mention of text, words, brands, or logos, as you will be penalized if you do.`,
       },
     ],
     tools: [
@@ -89,13 +91,13 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string },
         type: 'function',
         function: {
           name: 'generateImagePrompts',
-          description: 'Generates 3 different image prompt concepts',
+          description: 'Generates 3 different image prompt concepts for the center part of a social media or blog post',
           parameters: {
             type: 'object',
             properties: {
               prompts: {
                 type: 'array',
-                description: 'Array of 3 different image prompt concepts',
+                description: 'Array of 3 different image prompt concepts for the center part of an image',
                 items: {
                   type: 'string',
                   description: 'The actual image generation prompt',
@@ -206,7 +208,7 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
   return JSON.parse(gptArgs);
 };
 
-export const generateBanner: GenerateBanner<{ prompt: string; seed?: number }, GeneratedImageData> = async ({ prompt, seed }, context) => {
+export const generateBanner: GenerateBanner<{ centerInfoPrompt: string; seed?: number }, GeneratedImageData> = async ({ centerInfoPrompt, seed }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -219,12 +221,24 @@ export const generateBanner: GenerateBanner<{ prompt: string; seed?: number }, G
   //   'A stylized, abstract representation of form-building blocks stacking up like a 3D puzzle. Each block is labeled with React Hook Form, Zod, and Shadcn, with neon lights illuminating the blocks, symbolizing the synergy and ease of building complex forms.';
   // seed = 1713204812;
 
+  const centerInfoPromptWithoutPunctuation = centerInfoPrompt.endsWith('.') ? centerInfoPrompt.slice(0, -1) : centerInfoPrompt;
+
+  const imageParts = 3;
+  const backgroundColor = 'black';
+  const orientation = 'landscape';
+  const secondPart = orientation === 'landscape' ? 'left' : 'top';
+  const thirdPart = orientation === 'landscape' ? 'right' : 'bottom';
+  const imageStyle = ['whimsical illustration', 'digital art', 'oil painting', 'watercolor', 'illustration', 'pencil sketch', '3D render', 'pop art', 'minimalist'];
+  const randomImageStyle = imageStyle[Math.floor(Math.random() * imageStyle.length)];
+  // const centerInfo = 'a minimalist series of lines, almost like a sound wave, creates a subtle mountain range design.';
+  const combinedImagePrompt = `A ${randomImageStyle} with ${orientation} orientation and a ${backgroundColor} background. In the center of the image, ${centerInfoPromptWithoutPunctuation}. The ${secondPart} and ${thirdPart} parts of the image are empty, leaving space for the center content to be the main focus of the image.`;
+
   try {
     const response = await axios.post(
       `${IDEOGRAM_BASE_URL}/generate`,
       {
         image_request: {
-          prompt: prompt,
+          prompt: combinedImagePrompt,
           model: 'V_2',
           magic_prompt_option: 'OFF',
           resolution: IdeogramImageResolution.DEVTO,
@@ -289,7 +303,7 @@ export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, Gene
   const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return await context.entities.GeneratedImageData.findMany({
     where: { userId: context.user.id, createdAt: { gt: last24Hours } },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
   });
 };
 
@@ -298,4 +312,19 @@ export const getGeneratedImageDataById: GetGeneratedImageDataById<{ id: string }
     throw new HttpError(401);
   }
   return await context.entities.GeneratedImageData.findUniqueOrThrow({ where: { id, userId: context.user.id } });
+};
+
+export const getImageProxy: GetImageProxy<{ url: string }, string> = async ({ url }, context) => {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch image');
+
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+
+    return `data:${contentType};base64,${base64}`;
+  } catch (error: any) {
+    throw new Error(`Failed to proxy image: ${error.message}`);
+  }
 };

@@ -34,7 +34,7 @@ export const GenerateImagePrompt: FC = () => {
             const generatedPrompts = await generatePromptFromTitle({ title: postTopic });
 
             if (generatedPrompts.prompts.length > 0) {
-              const generatedBanners = generatedPrompts.prompts.map((prompt) => generateBanner({ prompt: prompt }));
+              const generatedBanners = generatedPrompts.prompts.map((prompt) => generateBanner({ centerInfoPrompt: prompt }));
 
               const imageResults = await Promise.all(generatedBanners);
               setGeneratedImages(imageResults);

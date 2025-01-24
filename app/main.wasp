@@ -160,6 +160,16 @@ route EditorRoute { path: "/editor", to: EditorPage }
 page EditorPage {
   component: import Editor from "@src/editor/Editor"
 }
+
+route ImageOverlayRoute { path: "/image-overlay/:id", to: ImageOverlayPage }
+page ImageOverlayPage {
+  component: import { ImageOverlay } from "@src/editor/components/ImageOverlay.tsx"
+}
+
+query getImageProxy {
+  fn: import { getImageProxy } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
 //#endregion
 
 //#region Banner
