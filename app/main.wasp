@@ -192,7 +192,29 @@ query getRecentGeneratedImageData {
   fn: import { getRecentGeneratedImageData } from "@src/banner/operations",
   entities: [User, GeneratedImageData]
 }
+
+query getGeneratedImageDataById {
+  fn: import { getGeneratedImageDataById } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
 //#endregion
+
+//#region Image Generation
+route RecentGeneratedImagesRoute { path: "/recent-images", to: RecentGeneratedImagesPage }
+page RecentGeneratedImagesPage {
+  component: import { RecentGeneratedImages } from "@src/editor/components/RecentGeneratedImages"
+}
+
+route GenerateImagePromptRoute { path: "/generate-image", to: GenerateImagePromptPage }
+page GenerateImagePromptPage {
+  component: import { GenerateImagePrompt } from "@src/editor/components/GenerateImagePrompt"
+}
+
+route EditImagesRoute { path: "/edit-image", to: EditImagePage }
+route EditImageRoute { path: "/edit-image/:id", to: EditImagePage }
+page EditImagePage {
+  component: import { EditImagePrompt } from "@src/editor/components/EditImagePrompt"
+}
 
 //#region Brand Theme
 action upsertBrandTheme {

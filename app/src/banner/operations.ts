@@ -1,5 +1,5 @@
 import type { GeneratedImageData, User } from 'wasp/entities';
-import type { GenerateBanner, GeneratePrompts, GeneratePromptFromImage, GeneratePromptFromTitle, GetRecentGeneratedImageData } from 'wasp/server/operations';
+import type { GenerateBanner, GeneratePrompts, GeneratePromptFromImage, GeneratePromptFromTitle, GetRecentGeneratedImageData, GetGeneratedImageDataById } from 'wasp/server/operations';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
@@ -69,15 +69,20 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string },
     throw openai;
   }
 
+  const bannerInstructions = '"The center third of the image shows a series of minimal lines, almost like a sound wave, creating a subtle mountain range design. As the lines approach the edges of the other two thirds of the image, they fade out, leaving space on the sides of the image for text to be added post-generation."';
+
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       {
         role: 'system',
         content:
-          'You are an expert blog and social media image prompt engineer. You will be given a title or topic and your job is to create 3 different image prompts that would be suitable for that post, each with a completely different concept and approach. Consider marketing best practices and create engaging, visually striking descriptions. Do not include any text generation in the prompts.',
+          `You are an expert blog and social media image prompt engineer. You will be given a title or topic and your job is to create different image prompts that would be suitable for that post. Do not include any mention of text, words, brands, tools, or logos, as you will be penalized if you do. The prompts should not add text within the image, rather they should convey the concept of the post.`,
       },
-      { role: 'user', content: `Please create 3 different image prompt concepts for a social media or blog post with the title: "${title}"` },
+      {
+        role: 'user',
+        content: `Please create 3 different image prompt concepts for a social media or blog post with the title: ${title}. Do not include any mention of text, words, brands, tools, or logos, as you will be penalized if you do.`,
+      },
     ],
     tools: [
       {
@@ -219,13 +224,11 @@ export const generateBanner: GenerateBanner<{ prompt: string; seed?: number }, G
       `${IDEOGRAM_BASE_URL}/generate`,
       {
         image_request: {
-          prompt,
+          prompt: prompt,
           model: 'V_2',
           magic_prompt_option: 'OFF',
           resolution: IdeogramImageResolution.DEVTO,
-          color_palette: {
-            members: colorPalette || undefined,
-          },
+          ...(colorPalette ? { color_palette: { members: colorPalette } } : undefined),
           // Todo: add seed input
           seed,
         },
@@ -284,5 +287,15 @@ export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, Gene
   }
 
   const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return await context.entities.GeneratedImageData.findMany({ where: { userId: context.user.id, createdAt: { gt: last24Hours } } });
+  return await context.entities.GeneratedImageData.findMany({
+    where: { userId: context.user.id, createdAt: { gt: last24Hours } },
+    orderBy: { createdAt: 'desc' }
+  });
+};
+
+export const getGeneratedImageDataById: GetGeneratedImageDataById<{ id: string }, GeneratedImageData> = async ({ id }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+  return await context.entities.GeneratedImageData.findUniqueOrThrow({ where: { id, userId: context.user.id } });
 };

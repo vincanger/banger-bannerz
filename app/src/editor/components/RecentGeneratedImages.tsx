@@ -1,23 +1,11 @@
 import type { FC } from 'react';
-import type { GeneratedImageData } from 'wasp/entities';
 
 import { useQuery } from 'wasp/client/operations';
 import { getRecentGeneratedImageData } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
+import Editor from '../Editor';
 
-interface RecentGeneratedImagesProps {
-  onSelectImage: (image: GeneratedImageData) => void;
-  onGenerateVariations: (image: GeneratedImageData) => void;
-  onSaveImage: (image: GeneratedImageData) => void;
-  selectedImage: GeneratedImageData | null;
-}
-
-export const RecentGeneratedImages: FC<RecentGeneratedImagesProps> = ({
-  onSelectImage,
-  onGenerateVariations,
-  onSaveImage,
-  selectedImage
-}) => {
+export const RecentGeneratedImages: FC = () => {
   const { data: recentImages, isLoading, error } = useQuery(getRecentGeneratedImageData);
 
   if (isLoading) {
@@ -45,12 +33,10 @@ export const RecentGeneratedImages: FC<RecentGeneratedImagesProps> = ({
   }
 
   return (
-    <ImageGrid
-      images={recentImages}
-      selectedImage={selectedImage}
-      onSelectImage={onSelectImage}
-      onGenerateVariations={onGenerateVariations}
-      onSaveImage={onSaveImage}
-    />
+    <Editor>
+      <ImageGrid
+        images={recentImages}
+      />
+    </Editor>
   );
 };
