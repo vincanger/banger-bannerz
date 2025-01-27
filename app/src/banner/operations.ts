@@ -1,13 +1,29 @@
 import type { GeneratedImageData, User } from 'wasp/entities';
-import type { GenerateBanner, GeneratePrompts, GeneratePromptFromImage, GeneratePromptFromTitle, GetRecentGeneratedImageData, GetGeneratedImageDataById, GetImageProxy } from 'wasp/server/operations';
+import type {
+  GenerateBanner,
+  GeneratePrompts,
+  GeneratePromptFromImage,
+  GeneratePromptFromTitle,
+  GetRecentGeneratedImageData,
+  GetGeneratedImageDataById,
+  GetImageProxy,
+  RemoveObjectFromImage,
+} from 'wasp/server/operations';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
+import Replicate from 'replicate';
+import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from 'wasp/server';
+import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { openai } from '../demo-ai-app/operations';
 
 const IDEOGRAM_BASE_URL = 'https://api.ideogram.ai';
+
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN,
+});
 
 export enum IdeogramImageResolution {
   INSTAGRAM = 'RESOLUTION_1024_1024', // 1080:1080 = 1
@@ -326,5 +342,46 @@ export const getImageProxy: GetImageProxy<{ url: string }, string> = async ({ ur
     return `data:${contentType};base64,${base64}`;
   } catch (error: any) {
     throw new Error(`Failed to proxy image: ${error.message}`);
+  }
+};
+
+export const removeObjectFromImage: RemoveObjectFromImage<{ imageUrl: string; maskUrl: string }, string> = async ({ imageUrl, maskUrl }, context) => {
+  // console.log('imageUrl: ', imageUrl);
+  console.log('maskUrl: ', maskUrl);
+
+  const maskFilename = uuidv4();
+  const maskPath = `/tmp/${maskFilename}.png`;
+  const maskData = maskUrl.replace(/^data:image\/\w+;base64,/, '');
+  await writeFile(maskPath, Buffer.from(maskData, 'base64'));
+  const maskBuffer = await readFile(maskPath);
+
+  let output = await replicate.predictions.create({
+    version: '0e3a841c913f597c1e4c321560aa69e2bc1f15c65f8c366caafc379240efd8ba',
+    input: {
+      mask: maskBuffer,
+      image: imageUrl,
+    },
+  });
+
+  await unlink(maskPath);
+
+  const MAX_ATTEMPTS = 30; // 30 seconds timeout
+  let attempts = 0;
+  
+  while (output.status === 'processing' || output.status === 'starting') {
+    if (attempts >= MAX_ATTEMPTS) {
+      throw new HttpError(408, 'Processing timeout exceeded');
+    }
+    
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    output = await replicate.predictions.get(output.id);
+    attempts++;
+  }
+
+  if (output.status === 'succeeded') {
+    console.log('output: ', output.output);
+    return output.output;
+  } else {
+    throw new HttpError(500, `Prediction failed with status: ${output.status}`);
   }
 };

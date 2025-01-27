@@ -13,12 +13,14 @@ import { generateBanner, generatePromptFromTitle } from 'wasp/client/operations'
 import { ImageGrid } from './components/ImageGrid';
 import { RecentGeneratedImages } from './components/RecentGeneratedImages';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Toolbar } from './components/Toolbar';
+import { Modal } from './components/Modal';
 
 interface EditorProps {
   children: ReactNode;
 }
 
-type SidebarItem = 'settings' | 'images' | 'text' | 'prompt' | 'theme' | 'recent-images' | 'generate-image' | 'edit-image';
+type SidebarItem = 'settings' | 'images' | 'text' | 'prompt' | 'brand' | 'recent-images' | 'generate-image' | 'edit-image';
 
 const Editor: FC<EditorProps> = ({ children }) => {
   const [generatedImages, setGeneratedImages] = useState<GeneratedImageData[]>([]);
@@ -33,7 +35,11 @@ const Editor: FC<EditorProps> = ({ children }) => {
   const [activeSidebarItem, setActiveSidebarItem] = useState<SidebarItem | null>(null);
   const [selectedImage, setSelectedImage] = useState<GeneratedImageData | null>(null);
   const [showVariations, setShowVariations] = useState(false);
-  const [recentImages, setRecentImages] = useState<GeneratedImageData[]>([]);
+
+  const [showRecentImages, setShowRecentImages] = useState(false);
+  const [showImageLibrary, setShowImageLibrary] = useState(false);
+
+  const [isRecentImagesModalOpen, setIsRecentImagesModalOpen] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,7 +48,11 @@ const Editor: FC<EditorProps> = ({ children }) => {
   const activeSidebarItemFromPath = location.pathname.split('/')[1] as SidebarItem || null;
 
   const handleSidebarItemClick = (item: SidebarItem) => {
-    navigate(`/${item}`);
+    if (item === 'recent-images') {
+      setIsRecentImagesModalOpen(true);
+    } else {
+      navigate(`/${item}`);
+    }
   };
 
   const handleImageSelect = (image: GeneratedImageData) => {
@@ -66,14 +76,6 @@ const Editor: FC<EditorProps> = ({ children }) => {
     console.log('save image', image);
   };
 
-  useEffect(() => {
-    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recent = generatedImages.filter(img => {
-      const imageDate = new Date(img.createdAt);
-      return imageDate > last24Hours;
-    });
-    setRecentImages(recent);
-  }, [generatedImages]);
 
   return (
     <div className='flex h-screen bg-gray-100'>
@@ -99,9 +101,9 @@ const Editor: FC<EditorProps> = ({ children }) => {
               icon={<FaEdit className='h-4 w-4 text-gray-500' />} 
               onClick={() => navigate('/edit-image')} 
             />
-            <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
+            <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('recent-images')} />
             <SidebarItem title='Settings' isActive={activeSidebarItemFromPath === 'settings'} icon={<FaCog className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('settings')} />
-            <SidebarItem title='Theme' isActive={activeSidebarItemFromPath === 'theme'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('theme')} />
+            <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
             <SidebarItem title='Images' isActive={activeSidebarItemFromPath === 'images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('images')} />
             <SidebarItem title='Text' isActive={activeSidebarItemFromPath === 'text'} icon={<FaFont className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('text')} />
           </div>
@@ -111,17 +113,7 @@ const Editor: FC<EditorProps> = ({ children }) => {
       {/* Main Content */}
       <div className='flex flex-1 flex-col'>
         {/* Top Toolbar */}
-        <div className='bg-white p-4 shadow-md'>
-          <div className='flex items-center justify-between'>
-            <div className='flex space-x-4'>
-              {/* Add toolbar buttons/controls */}
-              <button className='rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600'>Save</button>
-              <button className='rounded bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300'>Undo</button>
-              <button className='rounded bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300'>Redo</button>
-            </div>
-            <div>{/* Add additional toolbar controls */}</div>
-          </div>
-        </div>
+        <Toolbar isRecentImagesModalOpen={isRecentImagesModalOpen} setIsRecentImagesModalOpen={setIsRecentImagesModalOpen} />
 
         {/* Canvas Area - Now using Outlet */}
         <div className='flex-1 overflow-auto p-8'>
@@ -130,6 +122,15 @@ const Editor: FC<EditorProps> = ({ children }) => {
           </div>
         </div>
       </div>
+
+      {/* Add Modal */}
+      <Modal
+        isOpen={isRecentImagesModalOpen}
+        onClose={() => setIsRecentImagesModalOpen(false)}
+        title="Recently Generated Images"
+      >
+        <RecentGeneratedImages />
+      </Modal>
     </div>
   );
 };

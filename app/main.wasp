@@ -166,8 +166,18 @@ page ImageOverlayPage {
   component: import { ImageOverlay } from "@src/editor/components/ImageOverlay.tsx"
 }
 
+route BrandRoute { path: "/brand", to: BrandPage }
+page BrandPage {
+  component: import { Brand } from "@src/editor/components/Brand.tsx"
+}
+
 query getImageProxy {
   fn: import { getImageProxy } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
+
+action removeObjectFromImage {
+  fn: import { removeObjectFromImage } from "@src/banner/operations",
   entities: [User, GeneratedImageData]
 }
 //#endregion

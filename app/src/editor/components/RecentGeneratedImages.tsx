@@ -3,7 +3,6 @@ import type { FC } from 'react';
 import { useQuery } from 'wasp/client/operations';
 import { getRecentGeneratedImageData } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
-import Editor from '../Editor';
 
 export const RecentGeneratedImages: FC = () => {
   const { data: recentImages, isLoading, error } = useQuery(getRecentGeneratedImageData);
@@ -33,10 +32,8 @@ export const RecentGeneratedImages: FC = () => {
   }
 
   return (
-    <Editor>
-      <ImageGrid
-        images={recentImages}
-      />
-    </Editor>
+    <ImageGrid
+      images={recentImages}
+    />
   );
 };
