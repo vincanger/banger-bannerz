@@ -4,6 +4,8 @@ import { useQuery } from 'wasp/client/operations';
 import { getRecentGeneratedImageData } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
 
+
+
 export const RecentGeneratedImages: FC = () => {
   const { data: recentImages, isLoading, error } = useQuery(getRecentGeneratedImageData);
 
@@ -37,3 +39,4 @@ export const RecentGeneratedImages: FC = () => {
     />
   );
 };
+

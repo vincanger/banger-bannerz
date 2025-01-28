@@ -12,17 +12,17 @@ const s3Client = new S3Client({
 });
 
 type S3Upload = {
+  fileName: string;
   fileType: string;
   userInfo: string;
 }
 
-export const getUploadFileSignedURLFromS3 = async ({fileType, userInfo}: S3Upload) => {
-  const ex = fileType.split('/')[1];
-  const Key = `${userInfo}/${randomUUID()}.${ex}`;
+export const getUploadFileSignedURLFromS3 = async ({ fileName, fileType, userInfo}: S3Upload) => {
+  const Key = `${userInfo}/${fileName}.${fileType}`;
   const s3Params = {
     Bucket: process.env.AWS_S3_FILES_BUCKET,
     Key,
-    ContentType: `${fileType}`,
+    ContentType: `image/${fileType}`,
   };
   const command = new PutObjectCommand(s3Params);
   const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600,});

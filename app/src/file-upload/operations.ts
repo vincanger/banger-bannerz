@@ -23,7 +23,12 @@ export const createFile: CreateFile<FileDescription, File> = async ({ fileType, 
 
   const userInfo = context.user.id;
 
-  const { uploadUrl, key } = await getUploadFileSignedURLFromS3({ fileType, userInfo });
+  const { uploadUrl, key } = await getUploadFileSignedURLFromS3({ fileName: name, fileType, userInfo });
+
+  const region = process.env.AWS_S3_REGION;
+  const bucketName = process.env.AWS_S3_FILES_BUCKET;
+
+  const publicUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
 
   return await context.entities.File.create({
     data: {

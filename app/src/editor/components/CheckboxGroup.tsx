@@ -1,14 +1,17 @@
-import { FC } from 'react';
-import { UseFormRegister } from 'react-hook-form';
-import { ThemeSettingsData } from './ThemeSettings';
+import type { FC } from 'react';
+import type { BrandTheme } from 'wasp/entities';
+
+import  { UseFormRegister } from 'react-hook-form';
+import { cn } from '../../client/cn';
 
 interface CheckboxGroupProps {
   label: string;
-  name: keyof ThemeSettingsData;
+  name: keyof BrandTheme;
   options: string[];
   description: string;
   selectedValues: string[] | undefined;
-  register: UseFormRegister<ThemeSettingsData>;
+  register: UseFormRegister<Partial<BrandTheme>>;
+  onChange: (name: keyof BrandTheme, value: string, isChecked: boolean) => void;
 }
 
 const CheckboxGroup: FC<CheckboxGroupProps> = ({
@@ -17,7 +20,8 @@ const CheckboxGroup: FC<CheckboxGroupProps> = ({
   options,
   description,
   selectedValues = [],
-  register
+  register,
+  onChange
 }) => {
   const values = Array.isArray(selectedValues) ? selectedValues : [];
 
@@ -41,8 +45,13 @@ const CheckboxGroup: FC<CheckboxGroupProps> = ({
               type="checkbox"
               value={option}
               {...register(name)}
+              checked={values.includes(option)}
+              onChange={(e) => onChange(name, e.target.value, e.target.checked)}
               disabled={values.length >= 3 && !values.includes(option)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className={cn(
+                'h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500',
+                values.length >= 3 && !values.includes(option) && 'cursor-not-allowed opacity-50'
+              )}
             />
             <span className="text-sm text-gray-700">
               {option.charAt(0).toUpperCase() + option.slice(1)}
@@ -53,5 +62,4 @@ const CheckboxGroup: FC<CheckboxGroupProps> = ({
     </div>
   );
 };
-
 export default CheckboxGroup; 

@@ -11,7 +11,7 @@ import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData } from
 import { useAuth } from 'wasp/client/auth';
 import { Link } from 'wasp/client/router';
 
-export const EditImagePrompt: FC = () => {
+export const EditImage: FC = () => {
   const { data: user } = useAuth();
   const { id } = useParams();
   const { data: imageData } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id });
@@ -103,7 +103,7 @@ export const EditImagePrompt: FC = () => {
     <Editor>
       {imagePromptData ? (
         <div className='mb-4'>
-          <div className='mb-8 rounded-lg overflow-hidden shadow-lg relative'>
+          <div className='mb-8 overflow-hidden shadow-lg relative'>
             <img 
               src={imagePromptData?.url} 
               alt='Selected image' 
@@ -182,11 +182,10 @@ export const EditImagePrompt: FC = () => {
             onClick={async () => {
               try {
                 if (!imagePromptData) return;
-                const newImage = await generateBanner({
-                  centerInfoPrompt: imagePromptData.prompt,
-                  seed: imagePromptData.seed,
+                const newImages = await generateBanner({
+                  centerInfoPrompts: [imagePromptData.prompt],
                 });
-                setGeneratedImages((prev) => [newImage, ...prev]);
+                setGeneratedImages((prev) => [...prev, ...newImages]);
               } catch (error) {
                 console.error('Failed to generate edited image:', error);
               }

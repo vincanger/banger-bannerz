@@ -180,6 +180,23 @@ action removeObjectFromImage {
   fn: import { removeObjectFromImage } from "@src/banner/operations",
   entities: [User, GeneratedImageData]
 }
+
+action saveGeneratedImageData {
+  fn: import { saveGeneratedImageData } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
+
+action saveBrandThemeSettings {
+  fn: import { saveBrandThemeSettings } from "@src/banner/operations",
+  entities: [User, BrandTheme]
+}
+
+query getBrandThemeSettings {
+  fn: import { getBrandThemeSettings } from "@src/banner/operations",
+  entities: [User, BrandTheme]
+}
+
+
 //#endregion
 
 //#region Banner
@@ -233,7 +250,7 @@ page GenerateImagePromptPage {
 route EditImagesRoute { path: "/edit-image", to: EditImagePage }
 route EditImageRoute { path: "/edit-image/:id", to: EditImagePage }
 page EditImagePage {
-  component: import { EditImagePrompt } from "@src/editor/components/EditImagePrompt"
+  component: import { EditImage } from "@src/editor/components/EditImage"
 }
 
 //#region Brand Theme

@@ -1,84 +1,103 @@
-import { FC, useEffect } from 'react';
+import  { useEffect, type FC } from 'react';
+
 import { useForm } from 'react-hook-form';
 import CheckboxGroup from './CheckboxGroup';
-import { useQuery, upsertBrandTheme, getBrandTheme } from 'wasp/client/operations';
+import { ImageStyle, ImageMood, ImageLighting } from '../../banner/imageSettings';
+import { useQuery, useAction, getBrandTheme, saveBrandThemeSettings } from 'wasp/client/operations';
+import { BrandTheme } from 'wasp/entities';
 
-export interface ThemeSettingsData {
-  preferredStyles?: string[];
-  mood?: string[];
-  lighting?: string[];
-}
 
 interface ThemeSettingsProps {
-  onSubmit?: (data: ThemeSettingsData) => void;
+  onSubmit?: (data: Partial<BrandTheme>) => void;
 }
 
 export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
-  const { register, handleSubmit, watch, setValue } = useForm<ThemeSettingsData>();
-  const selectedStyles = watch('preferredStyles', []);
-  const selectedMoods = watch('mood', []);
-  const selectedLighting = watch('lighting', []);
-
+  const { register, handleSubmit, watch, setValue, formState: { defaultValues, touchedFields } } = useForm<Partial<BrandTheme>>();
+  
   const { data: brandTheme, error: brandThemeError, isLoading: isBrandThemeLoading } = useQuery(getBrandTheme);
+  
+  const saveBrandThemeSettingsOptimistically = useAction(saveBrandThemeSettings, {
+    optimisticUpdates: [{
+      getQuerySpecifier: () => [getBrandTheme],
+      updateQuery: (newThemeData, oldTheme) => ({
+        ...oldTheme,
+        ...newThemeData
+      })
+    }]
+  });
 
   useEffect(() => {
-    if (brandTheme) {
-      setValue('preferredStyles', brandTheme.preferredStyles);
-      setValue('mood', brandTheme.mood);
-      setValue('lighting', brandTheme.lighting);
-    }
+    console.log('brandTheme', brandTheme);
   }, [brandTheme]);
 
-  const handleFormSubmit = async (data: ThemeSettingsData) => {
+  // Initialize form with brandTheme data when it loads
+  useEffect(() => {
+    if (brandTheme && !touchedFields) {
+      // Only set values if they're not already set (initial load)
+      setValue('preferredStyles', brandTheme.preferredStyles || []);
+      setValue('mood', brandTheme.mood || []);
+      setValue('lighting', brandTheme.lighting || []);
+    }
+  }, [brandTheme, setValue, touchedFields]);
+
+  // Handle individual checkbox changes
+  const handleCheckboxChange = (name: keyof BrandTheme, value: string, isChecked: boolean) => {
+    console.log('name', name);
     try {
-      await upsertBrandTheme({
-        preferredStyles: data.preferredStyles,
-        mood: data.mood,
-        lighting: data.lighting,
+      const currentValues = (watch(name) as string[]) || [];
+      const newValues = isChecked 
+        ? [...currentValues, value]
+        : currentValues.filter((v: string) => v !== value);
+      
+      saveBrandThemeSettingsOptimistically({
+        brandTheme: {
+          id: brandTheme?.id,
+          [name]: newValues
+        }
       });
-      onSubmit?.(data);
+      
     } catch (error) {
-      console.error('Failed to save theme settings:', error);
+      console.error(`Failed to update ${name}:`, error);
+      // Revert the form state on error
+      if (brandTheme) {
+        setValue(name, brandTheme[name]);
+      }
     }
   };
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} className="p-4">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900">Theme Settings</h2>
+    <form className="p-4">
+      <h2 className="my-4 text-lg font-semibold text-gray-900">Preferred Image Settings</h2>
       
       <CheckboxGroup
-        label="Preferred Styles"
+        label="Image Styles"
         name="preferredStyles"
-        options={['photorealistic', 'digital art', 'oil painting', 'watercolor', 'illustration', 'pencil sketch', '3D render', 'pop art', 'minimalist']}
+        options={Object.values(ImageStyle)}
         description="Select up to 3 preferred artistic styles"
-        selectedValues={selectedStyles}
+        selectedValues={brandTheme?.preferredStyles || []}
         register={register}
+        onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
       />
 
       <CheckboxGroup
-        label="Mood"
+        label="Image Moods"
         name="mood"
-        options={['dramatic', 'peaceful', 'energetic', 'mysterious', 'whimsical', 'dark', 'bright', 'neutral']}
+        options={Object.values(ImageMood)}
         description="Select up to 3 emotional tones"
-        selectedValues={selectedMoods}
+        selectedValues={brandTheme?.mood || []}
         register={register}
+        onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
       />
 
       <CheckboxGroup
-        label="Lighting"
+        label="Image Lighting"
         name="lighting"
-        options={['natural', 'studio', 'dramatic', 'soft', 'neon', 'dark', 'bright', 'cinematic']}
+        options={Object.values(ImageLighting)}
         description="Select up to 3 lighting conditions"
-        selectedValues={selectedLighting}
+        selectedValues={brandTheme?.lighting || []}
         register={register}
+        onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
       />
-
-      <button
-        type="submit"
-        className="mt-4 w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-      >
-        Apply Theme Settings
-      </button>
     </form>
   );
 };

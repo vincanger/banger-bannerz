@@ -89,19 +89,9 @@ const Editor: FC<EditorProps> = ({ children }) => {
 
         {isSidebarOpen && (
           <div className='h-full overflow-y-auto mt-2'>
-            <SidebarItem 
-              title='Create Base Image' 
-              isActive={activeSidebarItemFromPath === 'generate-image'} 
-              icon={<FaMagic className='h-4 w-4 text-gray-500' />} 
-              onClick={() => navigate('/generate-image')} 
-            />
-            <SidebarItem 
-              title='Edit Image Prompt' 
-              isActive={activeSidebarItemFromPath === 'edit-image'} 
-              icon={<FaEdit className='h-4 w-4 text-gray-500' />} 
-              onClick={() => navigate('/edit-image')} 
-            />
-            <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('recent-images')} />
+            <SidebarItem title='Create Base Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
+            <SidebarItem title='Edit Image Prompt' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/edit-image')} />
+            <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
             <SidebarItem title='Settings' isActive={activeSidebarItemFromPath === 'settings'} icon={<FaCog className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('settings')} />
             <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
             <SidebarItem title='Images' isActive={activeSidebarItemFromPath === 'images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('images')} />
@@ -117,20 +107,15 @@ const Editor: FC<EditorProps> = ({ children }) => {
 
         {/* Canvas Area - Now using Outlet */}
         <div className='flex-1 overflow-auto p-8'>
-          <div className='mx-auto w-full max-w-4xl'>
-            {children}
-          </div>
+          <div className='mx-auto w-full max-w-4xl'>{children}</div>
         </div>
       </div>
 
       {/* Add Modal */}
-      <Modal
-        isOpen={isRecentImagesModalOpen}
-        onClose={() => setIsRecentImagesModalOpen(false)}
-        title="Recently Generated Images"
-      >
+      <Modal isOpen={isRecentImagesModalOpen} onClose={() => setIsRecentImagesModalOpen(false)} title='Recently Generated Images'>
         <RecentGeneratedImages />
       </Modal>
+
     </div>
   );
 };

@@ -9,6 +9,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from 'wasp/client/auth';
 import { useIsLandingPage } from './hooks/useIsLandingPage';
 import { updateCurrentUser } from 'wasp/client/operations';
+import { Toaster } from 'react-hot-toast';
 
 /**
  * use this component to wrap all child components
@@ -63,6 +64,7 @@ export default function App() {
         )}
       </div>
       <CookieConsentBanner />
+      <Toaster position='top-right' />
     </>
   );
 }

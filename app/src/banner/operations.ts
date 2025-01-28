@@ -1,4 +1,4 @@
-import type { GeneratedImageData, User } from 'wasp/entities';
+import type { BrandTheme, GeneratedImageData, User } from 'wasp/entities';
 import type {
   GenerateBanner,
   GeneratePrompts,
@@ -8,6 +8,9 @@ import type {
   GetGeneratedImageDataById,
   GetImageProxy,
   RemoveObjectFromImage,
+  SaveGeneratedImageData,
+  SaveBrandThemeSettings,
+  GetBrandThemeSettings,
 } from 'wasp/server/operations';
 
 import axios from 'axios';
@@ -18,6 +21,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from 'wasp/server';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { openai } from '../demo-ai-app/operations';
+import { getUploadFileSignedURLFromS3 } from '../file-upload/s3Utils';
+import { ImageStyle, ImageMood, ImageLighting, IdeogramImageResolution } from './imageSettings';
 
 const IDEOGRAM_BASE_URL = 'https://api.ideogram.ai';
 
@@ -25,16 +30,6 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
-export enum IdeogramImageResolution {
-  INSTAGRAM = 'RESOLUTION_1024_1024', // 1080:1080 = 1
-  TWITTER = 'RESOLUTION_1280_720', // 1200:675 = 1.77 --> 16:9
-  FACEBOOK = 'RESOLUTION_1344_704', // 1200:630 = 1.90
-  HASHNODE = 'RESOLUTION_1344_704', // 1600:840 = 1.90
-  LINKEDIN = 'RESOLUTION_1344_704', // 1200:627 = 1.91
-  MEDIUM = 'RESOLUTION_1408_704', // 1500:750 = 2
-  SUBSTACK = 'RESOLUTION_1408_704', // 1200:600 = 2
-  DEVTO = 'RESOLUTION_1536_640', // 1000:420 = 2.38
-}
 
 export type PromptVariations = { variations: { prompt: string; style: string; mood: string; lighting: string }[] };
 
@@ -76,7 +71,7 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string }, { prompts: string[] }> = async ({ title }, context) => {
+export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, isUsingBrandSettings: boolean }, { promptData: { prompt: string; style: string; mood: string; lighting: string }[] }> = async ({ title, isUsingBrandSettings }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -111,12 +106,33 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string },
           parameters: {
             type: 'object',
             properties: {
-              prompts: {
+              promptData: {
                 type: 'array',
                 description: 'Array of 3 different image prompt concepts for the center part of an image',
                 items: {
-                  type: 'string',
-                  description: 'The actual image generation prompt',
+                  type: 'object',
+                  properties: {
+                    prompt: {
+                      type: 'string',
+                      description: 'The actual image generation prompt',
+                    },
+                    style: {
+                      type: 'string',
+                      description: 'The artistic style applied',
+                      enum: Object.values(ImageStyle),
+                    },
+                    mood: {
+                      type: 'string',
+                      description: 'The emotional tone',
+                      enum: Object.values(ImageMood),
+                    },
+                    lighting: {
+                      type: 'string',
+                      description: 'The lighting conditions',
+                      enum: Object.values(ImageLighting),
+                    },
+                  },
+                  required: ['prompt', 'style', 'mood', 'lighting'],
                 },
               },
             },
@@ -181,17 +197,17 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
                     style: {
                       type: 'string',
                       description: 'The artistic style applied',
-                      enum: ['photorealistic', 'digital art', 'oil painting', 'watercolor', 'illustration', 'pencil sketch', '3D render', 'pop art', 'minimalist'],
+                      enum: Object.values(ImageStyle),
                     },
                     mood: {
                       type: 'string',
                       description: 'The emotional tone',
-                      enum: ['dramatic', 'peaceful', 'energetic', 'mysterious', 'whimsical', 'dark', 'bright', 'neutral'],
+                      enum: Object.values(ImageMood),
                     },
                     lighting: {
                       type: 'string',
                       description: 'The lighting conditions',
-                      enum: ['natural', 'studio', 'dramatic', 'soft', 'neon', 'dark', 'bright', 'cinematic'],
+                      enum: Object.values(ImageLighting),
                     },
                   },
                   required: ['prompt', 'style', 'mood', 'lighting'],
@@ -224,90 +240,117 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
   return JSON.parse(gptArgs);
 };
 
-export const generateBanner: GenerateBanner<{ centerInfoPrompt: string; seed?: number }, GeneratedImageData> = async ({ centerInfoPrompt, seed }, context) => {
+export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBrandSettings?: boolean; useBrandColors?: boolean }, GeneratedImageData[]> = async (
+  { centerInfoPrompts, useBrandSettings, useBrandColors },
+  context
+) => {
   if (!context.user) {
     throw new HttpError(401);
   }
 
-  const brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
-  const colorPalette = brandTheme?.colorScheme.map((color) => ({ color_hex: color }));
+  let colorPalette = null;
+  let brandTheme: BrandTheme | null = null;
+  if (useBrandColors) {
+    brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
+    colorPalette = brandTheme?.colorScheme.map((color) => ({ color_hex: color }));
+  }
 
-  console.log('colorPalette: ', colorPalette);
-  // prompt =
-  //   'A stylized, abstract representation of form-building blocks stacking up like a 3D puzzle. Each block is labeled with React Hook Form, Zod, and Shadcn, with neon lights illuminating the blocks, symbolizing the synergy and ease of building complex forms.';
-  // seed = 1713204812;
+  const centerInfoPromptsWithoutPunctuation = centerInfoPrompts.map(prompt => prompt.endsWith('.') ? prompt.slice(0, -1) : prompt);
 
-  const centerInfoPromptWithoutPunctuation = centerInfoPrompt.endsWith('.') ? centerInfoPrompt.slice(0, -1) : centerInfoPrompt;
-
-  const imageParts = 3;
   const backgroundColor = 'black';
   const orientation = 'landscape';
   const secondPart = orientation === 'landscape' ? 'left' : 'top';
   const thirdPart = orientation === 'landscape' ? 'right' : 'bottom';
-  const imageStyle = ['whimsical illustration', 'digital art', 'oil painting', 'watercolor', 'illustration', 'pencil sketch', '3D render', 'pop art', 'minimalist'];
-  const randomImageStyle = imageStyle[Math.floor(Math.random() * imageStyle.length)];
-  // const centerInfo = 'a minimalist series of lines, almost like a sound wave, creates a subtle mountain range design.';
-  const combinedImagePrompt = `A ${randomImageStyle} with ${orientation} orientation and a ${backgroundColor} background. In the center of the image, ${centerInfoPromptWithoutPunctuation}. The ${secondPart} and ${thirdPart} parts of the image are empty, leaving space for the center content to be the main focus of the image.`;
 
-  try {
-    const response = await axios.post(
-      `${IDEOGRAM_BASE_URL}/generate`,
-      {
-        image_request: {
-          prompt: combinedImagePrompt,
-          model: 'V_2',
-          magic_prompt_option: 'OFF',
-          resolution: IdeogramImageResolution.DEVTO,
-          ...(colorPalette ? { color_palette: { members: colorPalette } } : undefined),
-          // Todo: add seed input
-          seed,
-        },
-      },
-      {
-        headers: {
-          'Api-Key': process.env.IDEOGRAM_API_KEY!,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    if (!response.data?.data?.[0]?.url) {
-      throw new Error('No image URL in response');
-    }
-    const imageData = response.data.data[0];
+  const getRandomElements = <T>(array: T[], count: number): T[] => {
+    return [...array].sort(() => Math.random() - 0.5).slice(0, count);
+  };
 
-    console.log('imageData: ', imageData);
+  let imageMoods: string[] = getRandomElements(Object.values(ImageMood), 3);
+  let imageStyles: string[] = getRandomElements(Object.values(ImageStyle), 3);
+  let imageLightings: string[] = getRandomElements(Object.values(ImageLighting), 3);
 
-    return await context.entities.GeneratedImageData.create({
-      data: {
-        url: imageData.url,
-        prompt: imageData.prompt,
-        seed: imageData.seed,
-        style: imageData.style_type,
-        resolution: imageData.resolution,
-        user: {
-          connect: {
-            id: context.user.id,
+  if (useBrandSettings && brandTheme) {
+    imageMoods = brandTheme.mood?.length ? [
+      ...brandTheme.mood,
+      ...getRandomElements(
+        Object.values(ImageMood).filter(m => !brandTheme!.mood.includes(m)),
+        Math.max(0, 3 - brandTheme.mood.length)
+      )
+    ] : imageMoods;
+
+    imageLightings = brandTheme.lighting?.length ? [
+      ...brandTheme.lighting,
+      ...getRandomElements(
+        Object.values(ImageLighting).filter(l => !brandTheme!.lighting.includes(l)), 
+        Math.max(0, 3 - brandTheme.lighting.length)
+      )
+    ] : imageLightings;
+
+    imageStyles = brandTheme.preferredStyles?.length ? [
+      ...brandTheme.preferredStyles,
+      ...getRandomElements(
+        Object.values(ImageStyle).filter(s => !brandTheme!.preferredStyles.includes(s)),
+        Math.max(0, 3 - brandTheme.preferredStyles.length) 
+      )
+    ] : imageStyles;
+  }
+
+  const generateSingleBanner = async ({index, userId, centerInfoPrompt}: {index: number, userId: string, centerInfoPrompt: string}) => {
+    const combinedImagePrompt = `A ${imageMoods[index]} ${imageStyles[index]} with ${orientation} orientation and a ${backgroundColor} background. In the center of the image, ${centerInfoPrompt}. The ${secondPart} and ${thirdPart} parts of the image are empty, leaving space for the center content to be the main focus of the image. The lighting is ${imageLightings[index]}.`;
+
+    try {
+      const response = await axios.post(
+        `${IDEOGRAM_BASE_URL}/generate`,
+        {
+          image_request: {
+            prompt: combinedImagePrompt,
+            model: 'V_2',
+            magic_prompt_option: 'OFF',
+            resolution: IdeogramImageResolution.DEVTO,
+            ...(colorPalette ? { color_palette: { members: colorPalette } } : undefined),
+            // seed: seed ? seed + index : undefined,
           },
         },
-      },
-    });
+        {
+          headers: {
+            'Api-Key': process.env.IDEOGRAM_API_KEY!,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-    // {
-    //   "created": "2000-01-23T04:56:07Z",
-    //   "data": [
-    //     {
-    //       "prompt": "A serene tropical beach scene. Dominating the foreground are tall palm trees with lush green leaves, standing tall against a backdrop of a sandy beach. The beach leads to the azure waters of the sea, which gently kisses the shoreline. In the distance, there's an island or landmass with a silhouette of what appears to be a lighthouse or tower. The sky above is painted with fluffy white clouds, some of which are tinged with hues of pink and orange, suggesting either a sunrise or sunset.",
-    //       "resolution": "1024x1024",
-    //       "is_image_safe": true,
-    //       "seed": 12345,
-    //       "url": "https://ideogram.ai/api/images/direct/8YEpFzHuS-S6xXEGmCsf7g",
-    //       "style_type": "REALISTIC"
-    //     }
-    //   ]
-    // }
+      if (!response.data?.data?.[0]?.url) {
+        throw new Error('No image URL in response');
+      }
+      const imageData = response.data.data[0];
+
+      return await context.entities.GeneratedImageData.create({
+        data: {
+          url: imageData.url,
+          prompt: imageData.prompt,
+          seed: imageData.seed,
+          style: imageData.style_type,
+          resolution: imageData.resolution,
+          user: {
+            connect: {
+              id: userId,
+            },
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error(`Failed to generate banner ${index + 1}:`, error.message);
+      throw new HttpError(500, `Failed to generate banner ${index + 1}: ${error.message}`);
+    }
+  };
+
+  const userId = context.user.id;
+
+  try {
+    return await Promise.all(centerInfoPromptsWithoutPunctuation.map((prompt, index) => generateSingleBanner({index, userId, centerInfoPrompt: prompt})));
   } catch (error: any) {
-    console.error('Failed to generate banner:', error.message);
-    throw new HttpError(500, `Failed to generate banner: ${error.message}`);
+    throw new HttpError(500, `Failed to generate banners: ${error.message}`);
   }
 };
 
@@ -316,9 +359,8 @@ export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, Gene
     throw new HttpError(401);
   }
 
-  const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return await context.entities.GeneratedImageData.findMany({
-    where: { userId: context.user.id, createdAt: { gt: last24Hours } },
+    where: { userId: context.user.id },
     orderBy: { createdAt: 'desc' },
   });
 };
@@ -367,12 +409,12 @@ export const removeObjectFromImage: RemoveObjectFromImage<{ imageUrl: string; ma
 
   const MAX_ATTEMPTS = 30; // 30 seconds timeout
   let attempts = 0;
-  
+
   while (output.status === 'processing' || output.status === 'starting') {
     if (attempts >= MAX_ATTEMPTS) {
       throw new HttpError(408, 'Processing timeout exceeded');
     }
-    
+
     await new Promise((resolve) => setTimeout(resolve, 1000));
     output = await replicate.predictions.get(output.id);
     attempts++;
@@ -384,4 +426,75 @@ export const removeObjectFromImage: RemoveObjectFromImage<{ imageUrl: string; ma
   } else {
     throw new HttpError(500, `Prediction failed with status: ${output.status}`);
   }
+};
+
+export const saveGeneratedImageData: SaveGeneratedImageData<{ id: GeneratedImageData['id'] }, GeneratedImageData> = async ({ id }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+
+  const userInfo = context.user.id;
+
+  const imageData = await context.entities.GeneratedImageData.findUniqueOrThrow({ where: { id, userId: context.user.id } });
+  if (imageData.saved) {
+    throw new HttpError(400, 'Image already saved');
+  }
+
+  // temporarily download image to local file
+  const fileName = uuidv4();
+  let imageType = imageData.url.split('.').pop();
+  if (!imageType) {
+    throw new HttpError(500, 'Failed to get image type');
+  }
+  imageType = imageType.split('?')[0];
+  const filePath = `/tmp/${fileName}.${imageType}`;
+
+  const initialImgResult = await axios.get(imageData.url, { responseType: 'arraybuffer' });
+  await writeFile(filePath, initialImgResult.data);
+  const fileBuffer = await readFile(filePath);
+
+  const { uploadUrl, key } = await getUploadFileSignedURLFromS3({ fileName, fileType: imageType, userInfo });
+
+  const res = await axios.put(uploadUrl, fileBuffer, {
+    headers: {
+      'Content-Type': `image/${imageType}`,
+    },
+  });
+
+  if (res.status !== 200) {
+    throw new HttpError(500, 'Failed to upload image to S3');
+  }
+  await unlink(filePath);
+
+  const region = process.env.AWS_S3_REGION;
+  const bucketName = process.env.AWS_S3_FILES_BUCKET;
+
+  const publicUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+
+  return await context.entities.GeneratedImageData.update({
+    where: { id, userId: context.user.id },
+    data: { saved: true, url: publicUrl },
+  });
+};
+
+export const saveBrandThemeSettings: SaveBrandThemeSettings<{ brandTheme: Partial<BrandTheme> }, BrandTheme> = async ({ brandTheme }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+
+  return await context.entities.BrandTheme.upsert({
+    where: { id: brandTheme.id },
+    update: brandTheme,
+    create: {
+      ...brandTheme,
+      userId: context.user.id,
+    },
+  });
+};
+
+export const getBrandThemeSettings: GetBrandThemeSettings<void, BrandTheme> = async (_args, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+  return await context.entities.BrandTheme.findFirstOrThrow({ where: { userId: context.user.id } });
 };

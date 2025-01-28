@@ -26,7 +26,7 @@ export const GenerateImageVariations: FC<{ prompt: string }> = ({ prompt }) => {
 
           const promptPromises = promptVariations.variations.map((variation) => {
             return generateBanner({
-              centerInfoPrompt: variation.prompt + '. The picture should be in the style of ' + variation.style + ' with a ' + variation.mood + ' mood and ' + variation.lighting + ' lighting.',
+              centerInfoPrompts: [variation.prompt + '. The picture should be in the style of ' + variation.style + ' with a ' + variation.mood + ' mood and ' + variation.lighting + ' lighting.'],
             });
           });
 
@@ -37,7 +37,7 @@ export const GenerateImageVariations: FC<{ prompt: string }> = ({ prompt }) => {
           });
 
           console.log('imageResults: ', generatedImageVariations);
-          setImageUrls(generatedImageVariations.map((variation) => variation.url));
+          setImageUrls(generatedImageVariations.flatMap((variation) => variation.map((image) => image.url)));
         } catch (error) {
           console.error('Failed to generate prompts:', error);
         }

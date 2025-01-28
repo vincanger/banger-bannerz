@@ -54,6 +54,7 @@ model GeneratedImageData {
   seed                      Int
   style                     String
   resolution                String
+  saved                     Boolean         @default(false)
 
   user                      User            @relation(fields: [userId], references: [id])
   userId                    String
