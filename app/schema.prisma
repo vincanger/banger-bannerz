@@ -50,15 +50,41 @@ model GeneratedImageData {
   createdAt                 DateTime        @default(now())
 
   url                       String
-  prompt                    String
   seed                      Int
   style                     String
   resolution                String
   saved                     Boolean         @default(false)
 
+  userPrompt                String
+  postTopic                 String?
+
   user                      User            @relation(fields: [userId], references: [id])
   userId                    String
+
+  imageTemplateId           String?
+  imageTemplate             ImageTemplate? @relation(fields: [imageTemplateId], references: [id])
 }
+
+model ImageTemplate {
+  id                        String          @id @default(uuid())
+  createdAt                 DateTime        @default(now())
+
+  name                      String
+  description               String?
+  exampleImageUrl           String
+  exampleImagePrompt        String?
+
+  loraUrl                   String?
+  loraTriggerWord           String?
+
+  basePrompt                String?
+  prefix                    String?
+  suffix                    String?
+
+  generatedImageData        GeneratedImageData[]
+}
+
+// asdfasdfasdfasdf
 
 model GptResponse {
   id                        String          @id @default(uuid())

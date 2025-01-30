@@ -1,18 +1,13 @@
 import type { FC, ReactNode } from 'react';
-import type { GeneratedImageData } from 'wasp/entities';
+import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 
 import * as fabric from 'fabric';
-import { FaChevronLeft, FaChevronRight, FaCog, FaImage, FaFont, FaMagic, FaPalette, FaEdit } from 'react-icons/fa';
+import { FaChevronLeft, FaChevronRight, FaCog, FaImage, FaFont, FaMagic, FaPalette, FaEdit, FaCheck, FaBan } from 'react-icons/fa';
 import { useState, useEffect, useRef, forwardRef } from 'react';
-import { ColorPicker } from './components/ColorPicker';
-import { ExampleImageUpload } from './components/ExampleImageUpload';
-import { ThemeSettings } from './components/ThemeSettings';
-import { GenerateImageVariations } from './components/GenerateImageVariations';
 import SidebarItem from './components/SidebarItem';
-import { generateBanner, generatePromptFromTitle } from 'wasp/client/operations';
-import { ImageGrid } from './components/ImageGrid';
+import { getImageTemplates, useQuery } from 'wasp/client/operations';
 import { RecentGeneratedImages } from './components/RecentGeneratedImages';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Toolbar } from './components/Toolbar';
 import { Modal } from './components/Modal';
 
@@ -24,28 +19,29 @@ type SidebarItem = 'settings' | 'images' | 'text' | 'prompt' | 'brand' | 'recent
 
 const Editor: FC<EditorProps> = ({ children }) => {
   const [generatedImages, setGeneratedImages] = useState<GeneratedImageData[]>([]);
-
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [postTopic, setPostTopic] = useState<string>('');
-
-  const [exampleImagePrompt, setExampleImagePrompt] = useState<string>('');
-
-  const [imagePromptData, setImagePromptData] = useState<{ prompt: string; seed: number } | null>(null);
-
-  const [activeSidebarItem, setActiveSidebarItem] = useState<SidebarItem | null>(null);
-  const [selectedImage, setSelectedImage] = useState<GeneratedImageData | null>(null);
-  const [showVariations, setShowVariations] = useState(false);
-
-  const [showRecentImages, setShowRecentImages] = useState(false);
-  const [showImageLibrary, setShowImageLibrary] = useState(false);
-
   const [isRecentImagesModalOpen, setIsRecentImagesModalOpen] = useState(false);
+  const [templates, setTemplates] = useState<ImageTemplate[]>([]);
+
+  const { data: imageTemplates } = useQuery(getImageTemplates);
+
+  useEffect(() => {
+    if (imageTemplates) {
+      setTemplates(imageTemplates);
+    }
+  }, [imageTemplates]);
 
   const navigate = useNavigate();
   const location = useLocation();
-  
+  const { id: templateId } = useParams();
+
   // Get the active section from the current path
-  const activeSidebarItemFromPath = location.pathname.split('/')[1] as SidebarItem || null;
+  const activeSidebarItemFromPath = (location.pathname.split('/')[1] as SidebarItem) || null;
+
+  // Get the current path
+  const currentPath = location.pathname.split('/')[1];
+
+  const isGenerateImagePath = currentPath === 'generate-image';
 
   const handleSidebarItemClick = (item: SidebarItem) => {
     if (item === 'recent-images') {
@@ -55,38 +51,21 @@ const Editor: FC<EditorProps> = ({ children }) => {
     }
   };
 
-  const handleImageSelect = (image: GeneratedImageData) => {
-    setShowVariations(false);
-    setSelectedImage(image);
-    setImagePromptData({ prompt: image.prompt, seed: image.seed });
-    setActiveSidebarItem('prompt');
+  const handleTemplateSelect = (template: ImageTemplate) => {
+    navigate(`/generate-image/${template.id}`);
   };
-
-  const handleGenerateVariations = (image: GeneratedImageData) => {
-    setSelectedImage(image);
-
-    setImagePromptData({ prompt: image.prompt, seed: image.seed });
-    setShowVariations(true);
-    // setActiveSidebarItem('prompt');
-    // You can set the initial prompt here if you have access to the prompt that generated this image
-  };
-
-  const handleSaveImage = (image: GeneratedImageData) => {
-    // TODO: save image to database
-    console.log('save image', image);
-  };
-
 
   return (
     <div className='flex h-screen bg-gray-100'>
       {/* Left Sidebar */}
       <div className={`relative bg-white shadow-lg transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0'}`}>
-        <div className='absolute -right-6 top-4 z-10'>
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
-            {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
-          </button>
-        </div>
-
+        {!isGenerateImagePath && (
+          <div className='absolute -right-6 top-4 z-10'>
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
+              {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
+            </button>
+          </div>
+        )}
         {isSidebarOpen && (
           <div className='h-full overflow-y-auto mt-2'>
             <SidebarItem title='Create Base Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
@@ -99,6 +78,53 @@ const Editor: FC<EditorProps> = ({ children }) => {
           </div>
         )}
       </div>
+
+      {/* Template Images Sidebar - only shown on generate-image path */}
+      {isGenerateImagePath && (
+        <div className='relative bg-white shadow-lg w-64'>
+          <div className='absolute -right-6 top-4 z-10'>
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
+              {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
+            </button>
+          </div>
+          <div className='p-4'>
+            <h3 className='text-lg font-semibold mb-4'>Template Images</h3>
+            <div className='grid grid-cols-2 gap-2'>
+              {/* None template placeholder */}
+              <button
+                className='aspect-square w-full hover:drop-shadow-xl hover:scale-105 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 relative'
+                onClick={() => navigate('/generate-image')}
+              >
+                <div className='bg-gray-100 w-full h-full flex flex-col items-center justify-center'>
+                  <div className='text-gray-400 text-4xl'><FaBan /></div>
+                </div>
+                <p className='text-sm text-gray-500 mt-1'>No Template</p>
+                {!templateId && (
+                  <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
+                    <FaCheck className='w-3 h-3 text-white' />
+                  </div>
+                )}
+              </button>
+              {/* Existing templates */}
+              {templates.map((template, index) => (
+                <button
+                  key={index}
+                  className='aspect-square w-full hover:drop-shadow-xl hover:scale-105 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 relative'
+                  onClick={() => handleTemplateSelect(template)}
+                >
+                  <img src={template.exampleImageUrl} alt={template.name} className='h-full w-full object-cover' />
+                  <p className='text-sm text-gray-500 mt-1'>{template.name}</p>
+                  {templateId === template.id && (
+                    <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
+                      <FaCheck className='w-3 h-3 text-white' />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className='flex flex-1 flex-col'>
@@ -115,7 +141,6 @@ const Editor: FC<EditorProps> = ({ children }) => {
       <Modal isOpen={isRecentImagesModalOpen} onClose={() => setIsRecentImagesModalOpen(false)} title='Recently Generated Images'>
         <RecentGeneratedImages />
       </Modal>
-
     </div>
   );
 };

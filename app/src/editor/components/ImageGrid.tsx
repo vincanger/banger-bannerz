@@ -1,4 +1,5 @@
-import type { GeneratedImageData } from 'wasp/entities';
+import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
+import type { GeneratedImageDataWithTemplate } from './GenerateImagePrompt';
 
 import { cn } from '../../client/cn';
 import { FC, useState } from 'react';
@@ -9,7 +10,7 @@ import { saveGeneratedImageData } from 'wasp/client/operations';
 import { toast } from 'react-hot-toast';
 
 type ImageGridProps = {
-  images: GeneratedImageData[];
+  images: GeneratedImageDataWithTemplate[];
 };
 
 export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
@@ -34,8 +35,8 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
             <div className='flex-grow flex items-center justify-between'>
               {/* Prompt with popover */}
               <div className='relative group/prompt'>
-                <p className='text-sm text-gray-600 max-w-md truncate'>{image.prompt}</p>
-                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10 max-w-md'>{image.prompt}</div>
+                <p className='text-sm text-gray-600 max-w-md truncate'>{image.userPrompt}</p>
+                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10 max-w-md'>{image.imageTemplate?.loraTriggerWord ? `${image.imageTemplate.loraTriggerWord}: ${image.userPrompt}` : image.userPrompt}</div>
               </div>
 
               {/* Actions */}

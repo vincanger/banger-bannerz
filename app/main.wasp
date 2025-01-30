@@ -76,6 +76,7 @@ app OpenSaaS {
     seeds: [
       // Populates the database with a bunch of fake users to work with during development.
       import { seedMockUsers } from "@src/server/scripts/dbSeeds",
+      import { seedTemplates } from "@src/server/scripts/dbSeeds",
     ]
   },
 
@@ -210,9 +211,24 @@ action generateBanner {
   entities: [User, BrandTheme, GeneratedImageData]
 }
 
+query getImageTemplates {
+  fn: import { getImageTemplates } from "@src/banner/operations",
+  entities: [User, ImageTemplate]
+}
+
+query getImageTemplateById {
+  fn: import { getImageTemplateById } from "@src/banner/operations",
+  entities: [User, ImageTemplate]
+}
+
+action generateBannerFromTemplate {
+  fn: import { generateBannerFromTemplate } from "@src/banner/operations",
+  entities: [User, GeneratedImageData, ImageTemplate, BrandTheme]
+}
+
 action generatePromptFromTitle {
   fn: import { generatePromptFromTitle } from "@src/banner/operations",
-  entities: [User]
+  entities: [User, BrandTheme]
 }
 
 action generatePrompts {
@@ -243,6 +259,7 @@ page RecentGeneratedImagesPage {
 }
 
 route GenerateImagePromptRoute { path: "/generate-image", to: GenerateImagePromptPage }
+route GenerateImagePromptFromTemplateRoute { path: "/generate-image/:id", to: GenerateImagePromptPage }
 page GenerateImagePromptPage {
   component: import { GenerateImagePrompt } from "@src/editor/components/GenerateImagePrompt"
 }

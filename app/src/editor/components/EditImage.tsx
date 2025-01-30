@@ -1,15 +1,18 @@
 import type { FC } from 'react';
+import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
+import type { GeneratedImageDataWithTemplate } from './GenerateImagePrompt';
 
 import { useEffect, useState, useRef } from 'react';
-import { useForm } from 'react-hook-form';
-import { generatePrompts, generateBanner, removeObjectFromImage } from 'wasp/client/operations';
+import * as fabric from 'fabric';
 import Editor from '../Editor';
 import { ImageGrid } from './ImageGrid';
 import { useParams } from 'react-router-dom';
-import { GeneratedImageData } from 'wasp/entities';
-import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData } from 'wasp/client/operations';
+import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData, generateBanner } from 'wasp/client/operations';
 import { useAuth } from 'wasp/client/auth';
 import { Link } from 'wasp/client/router';
+
+
+type Tool = 'select' | 'rectangle' | 'circle' | 'text' | 'draw';
 
 export const EditImage: FC = () => {
   const { data: user } = useAuth();
@@ -17,13 +20,13 @@ export const EditImage: FC = () => {
   const { data: imageData } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id });
   const { data: recentImages } = useQuery(getRecentGeneratedImageData, undefined, { enabled: !!user?.id });
 
-  const [imagePromptData, setImagePromptData] = useState<GeneratedImageData | undefined>(undefined);
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImageData[]>([]);
-  const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [maskData, setMaskData] = useState<string | null>(null);
+  const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
+  const [selectedTool, setSelectedTool] = useState<Tool>('select');
+  const [color, setColor] = useState('#ffffff');
+  const [text, setText] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isDrawingRef = useRef(false);
-  const lastPosRef = useRef({ x: 0, y: 0 });
+  const [imagePromptData, setImagePromptData] = useState<GeneratedImageData | undefined>(undefined);
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImageDataWithTemplate[]>([]);
 
   useEffect(() => {
     if (!id && recentImages?.length && recentImages.length > 0) {
@@ -33,147 +36,211 @@ export const EditImage: FC = () => {
     }
   }, [id, recentImages, imageData]);
 
-  const getScaledCoordinates = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
+  useEffect(() => {
+    if (!canvasRef.current || !imagePromptData) return;
+
+    const container = canvasRef.current.parentElement;
+    if (!container) return;
+
+    const containerWidth = container.clientWidth;
+    const [imageWidth, imageHeight] = imagePromptData.resolution.split('x').map(Number);
+    const scale = containerWidth / imageWidth;
+
+    // Initialize canvas with proper dimensions and options
+    const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+      width: containerWidth,
+      height: imageHeight * scale,
+      backgroundColor: 'transparent',
+      preserveObjectStacking: true,
+      enableRetinaScaling: true,
+      renderOnAddRemove: true,
+    });
+
+    // Load background image using promise-based approach
+    const loadBackgroundImage = async () => {
+      try {
+        const img = await fabric.FabricImage.fromURL(imagePromptData.url, {}, {
+          crossOrigin: 'anonymous',
+          scaleX: scale,
+          scaleY: scale
+        });
+        
+        fabricCanvas.backgroundImage = img;
+        fabricCanvas.requestRenderAll();
+      } catch (error) {
+        console.error('Error loading background image:', error);
+      }
     };
-  };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
+    loadBackgroundImage();
+
+    // Modern event handling
+    fabricCanvas.on('object:modified', (opt) => {
+      const { target, transform } = opt;
+      console.log('Object modified:', { target, transform });
+    });
+
+    setCanvas(fabricCanvas);
+
+    return () => {
+      fabricCanvas.dispose();
+    };
+  }, [imagePromptData]);
+
+  useEffect(() => {
     if (!canvas) return;
-    
-    isDrawingRef.current = true;
-    lastPosRef.current = getScaledCoordinates(canvas, e.clientX, e.clientY);
-  };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas || !isDrawingRef.current) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const currentPos = getScaledCoordinates(canvas, e.clientX, e.clientY);
-
-    ctx.beginPath();
-    ctx.lineWidth = 80;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = 'white';
-    ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
-    ctx.lineTo(currentPos.x, currentPos.y);
-    ctx.stroke();
-
-    lastPosRef.current = currentPos;
-  };
-
-  const stopDrawing = () => {
-    if (!canvasRef.current) return;
-    isDrawingRef.current = false;
-    
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = canvasRef.current.width;
-    tempCanvas.height = canvasRef.current.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    
-    if (tempCtx) {
-      tempCtx.fillStyle = 'black';
-      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-      
-      tempCtx.drawImage(canvasRef.current, 0, 0);
+    canvas.isDrawingMode = selectedTool === 'draw';
+    if (canvas.isDrawingMode) {
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.freeDrawingBrush.width = 80;
+      canvas.freeDrawingBrush.color = color;
     }
-    
-    setMaskData(tempCanvas.toDataURL());
-  };
+  }, [selectedTool, canvas, color]);
 
-  const clearMask = () => {
-    const canvas = canvasRef.current;
+  const addShape = (shapeType: Tool) => {
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setMaskData(null);
+    
+    setSelectedTool(shapeType);
+    
+    let shape;
+    switch (shapeType) {
+      case 'rectangle':
+        shape = new fabric.Rect({
+          left: 100,
+          top: 100,
+          width: 100,
+          height: 100,
+          fill: 'transparent',
+          stroke: color,
+          strokeWidth: 2,
+          strokeUniform: true
+        });
+        break;
+      case 'circle':
+        shape = new fabric.Circle({
+          left: 100,
+          top: 100,
+          radius: 50,
+          fill: 'transparent',
+          stroke: color,
+          strokeWidth: 2,
+          strokeUniform: true
+        });
+        break;
+      case 'text':
+        if (text) {
+          shape = new fabric.Text(text, {
+            left: 100,
+            top: 100,
+            fill: color,
+            fontSize: 20,
+            fontFamily: 'Arial'
+          });
+        }
+        break;
+    }
+
+    if (shape) {
+      canvas.add(shape);
+      canvas.setActiveObject(shape);
+      canvas.requestRenderAll();
+    }
   };
 
   return (
     <Editor>
       {imagePromptData ? (
         <div className='mb-4'>
-          <div className='mb-8 overflow-hidden shadow-lg relative'>
-            <img 
-              src={imagePromptData?.url} 
-              alt='Selected image' 
-              className='w-full h-auto'
-            />
-            {isDrawingMode && (
-              <canvas
-                ref={canvasRef}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                className='absolute top-0 left-0 w-full h-full cursor-crosshair'
-                width={imagePromptData?.resolution.split('x')[0]}
-                height={imagePromptData?.resolution.split('x')[1]}
-                style={{ 
-                  width: '100%',
-                  height: '100%'
-                }}
-              />
-            )}
-          </div>
-          
           <div className='flex gap-2 mb-4'>
             <button
-              onClick={() => {
-                setIsDrawingMode(!isDrawingMode);
-                if (!isDrawingMode) {
-                  const canvas = canvasRef.current;
-                  if (!canvas) return;
-                  
-                  const img = new Image();
-                  img.src = imagePromptData.url;
-                  img.onload = () => {
-                    if (!canvas) return;
-                    
-                    console.log('Original image dimensions:', img.naturalWidth, 'x', img.naturalHeight);
-                    
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    
-                    console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
-                    
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                      ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    }
-                  };
-                }
-              }}
-              className='rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600'
+              onClick={() => setSelectedTool('select')}
+              className={`rounded px-4 py-2 text-white ${
+                selectedTool === 'select' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+              }`}
             >
-              {isDrawingMode ? 'Exit Mask Mode' : 'Create Mask'}
+              Select
             </button>
-            {isDrawingMode && (
+            <button
+              onClick={() => setSelectedTool('draw')}
+              className={`rounded px-4 py-2 text-white ${
+                selectedTool === 'draw' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+              }`}
+            >
+              Draw
+            </button>
+            <button
+              onClick={() => addShape('rectangle')}
+              className={`rounded px-4 py-2 text-white ${
+                selectedTool === 'rectangle' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+              }`}
+            >
+              Rectangle
+            </button>
+            <button
+              onClick={() => addShape('circle')}
+              className={`rounded px-4 py-2 text-white ${
+                selectedTool === 'circle' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+              }`}
+            >
+              Circle
+            </button>
+            <div className='flex items-center gap-2'>
               <button
-                onClick={clearMask}
-                className='rounded bg-red-500 px-4 py-2 text-white hover:bg-red-600'
+                onClick={() => setSelectedTool('text')}
+                className={`rounded px-4 py-2 text-white ${
+                  selectedTool === 'text' ? 'bg-yellow-600' : 'bg-yellow-500 hover:bg-yellow-600'
+                }`}
               >
-                Clear Mask
+                Text
+              </button>
+              {selectedTool === 'text' && (
+                <input
+                  type='text'
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      addShape('text');
+                    }
+                  }}
+                  className='rounded-md border border-gray-300 px-3 py-1'
+                  placeholder='Enter text...'
+                />
+              )}
+            </div>
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-10 h-10 rounded cursor-pointer"
+            />
+            {canvas && (
+              <button
+                onClick={() => {
+                  const activeObject = canvas.getActiveObject();
+                  if (activeObject) {
+                    canvas.remove(activeObject);
+                    canvas.renderAll();
+                  }
+                }}
+                className='rounded px-4 py-2 text-white bg-red-500 hover:bg-red-600'
+              >
+                Delete Selected
               </button>
             )}
           </div>
 
+          <div className='mb-8 overflow-hidden shadow-lg relative'>
+            <canvas ref={canvasRef} className='w-full h-auto' />
+          </div>
+          
           <label htmlFor='image-prompt' className='block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2'>
             Edit Image Prompt
           </label>
           <textarea
             id='image-prompt'
-            value={imagePromptData?.prompt || ''}
+            value={imagePromptData.userPrompt || ''}
             onChange={(e) => setImagePromptData((prev) => ({ ...prev!, prompt: e.target.value }))}
             className='w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white min-h-[100px]'
             placeholder='Edit the prompt to regenerate the image'
@@ -182,15 +249,15 @@ export const EditImage: FC = () => {
             onClick={async () => {
               try {
                 if (!imagePromptData) return;
-                const newImages = await generateBanner({
-                  centerInfoPrompts: [imagePromptData.prompt],
-                });
-                setGeneratedImages((prev) => [...prev, ...newImages]);
+                // const newImages = await generateBanner({
+                //   centerInfoPrompts: [imagePromptData.prompt],
+                // });
+                // setGeneratedImages((prev) => [...prev, ...newImages]);
               } catch (error) {
                 console.error('Failed to generate edited image:', error);
               }
             }}
-            disabled={!imagePromptData?.prompt}
+            // disabled={!imagePromptData?.promptTemplate?.userPrompt}
             className='mt-2 w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'
           >
             Generate Edit
@@ -200,25 +267,6 @@ export const EditImage: FC = () => {
               Generate Overlay
             </button>
           </Link>
-          {maskData && (
-            <button
-              onClick={async () => {
-                try {
-                  if (!imagePromptData) return;
-                  const result = await removeObjectFromImage({
-                    imageUrl: imagePromptData.url,
-                    maskUrl: maskData
-                  });
-                  console.log('Remove object result:', result);
-                } catch (error) {
-                  console.error('Failed to remove object:', error);
-                }
-              }}
-              className='mt-2 w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'
-            >
-              Remove Object
-            </button>
-          )}
         </div>
       ) : (
         <div className='mb-4'>

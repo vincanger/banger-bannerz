@@ -119,9 +119,10 @@ export const ImageOverlay: FC = () => {
 
   useEffect(() => {
     const processImageData = async () => {
-      if (proxiedImageUrl && imageData?.prompt) {
+      if (proxiedImageUrl && imageData) {
         try {
-          const processed = await processImage(proxiedImageUrl, 'Beautiful Forms with React Hook Form, Zod, and ShadCN');
+
+          const processed = await processImage(proxiedImageUrl, imageData.postTopic || 'test');
           setProcessedImageUrl(processed);
         } catch (error) {
           console.error('Failed to process image:', error);
@@ -184,7 +185,7 @@ export const ImageOverlay: FC = () => {
             />
             <div className='p-4 bg-gray-50 dark:bg-gray-800'>
               <p className='text-sm text-gray-600 dark:text-gray-300'>Processed Image with Overlay</p>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>{imageData.prompt}</p>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>{imageData.userPrompt}</p>
             </div>
           </div>
         )}

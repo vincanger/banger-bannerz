@@ -1,4 +1,4 @@
-import type { BrandTheme, GeneratedImageData, User } from 'wasp/entities';
+import type { BrandTheme, GeneratedImageData, ImageTemplate, User } from 'wasp/entities';
 import type {
   GenerateBanner,
   GeneratePrompts,
@@ -11,7 +11,11 @@ import type {
   SaveGeneratedImageData,
   SaveBrandThemeSettings,
   GetBrandThemeSettings,
+  GenerateBannerFromTemplate,
+  GetImageTemplates,
+  GetImageTemplateById,
 } from 'wasp/server/operations';
+import type { FileOutput, Prediction } from 'replicate';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
@@ -23,13 +27,13 @@ import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { openai } from '../demo-ai-app/operations';
 import { getUploadFileSignedURLFromS3 } from '../file-upload/s3Utils';
 import { ImageStyle, ImageMood, ImageLighting, IdeogramImageResolution } from './imageSettings';
+import { colorNames } from './colorNames';
 
 const IDEOGRAM_BASE_URL = 'https://api.ideogram.ai';
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
-
 
 export type PromptVariations = { variations: { prompt: string; style: string; mood: string; lighting: string }[] };
 
@@ -71,7 +75,10 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, isUsingBrandSettings: boolean }, { promptData: { prompt: string; style: string; mood: string; lighting: string }[] }> = async ({ title, isUsingBrandSettings }, context) => {
+export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; imageTemplate: ImageTemplate; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean }, { promptData: { prompt: string }[] }> = async (
+  { title, imageTemplate, isUsingBrandSettings, isUsingBrandColors },
+  context
+) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -80,21 +87,83 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, i
     throw openai;
   }
 
-  // const imageParts = 3
-  // const backgroundColor = 'black'
-  // const centerInfo = 'a minimalist series of lines, almost like a sound wave, creates a subtle mountain range design.';
-  // const imagePromptExample = `A striking image with a ${backgroundColor} background split in ${imageParts.toString()}, where in the center, ${centerInfo}. The details in the center third fade out as the reach the other two thirds of the image.`
+  let brandTheme: BrandTheme | null = null;
+  let colorPalettePrompt;
+  let brandMoodPrompt;
+  if (isUsingBrandSettings || isUsingBrandColors) {
+    brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
+  }
+  if (isUsingBrandColors) {
+    const colorPaletteString = brandTheme?.colorScheme.join(', ');
+    console.log('colorPaletteString from brandTheme: ', colorPaletteString);
+
+    const colorPalette = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert color palette engineer. You will be given a list of hex color codes and your job is to find the matching color names for each hex code from a provided list and return a string of the color palette.`,
+        },
+        { role: 'user', content: `Here is the list of hex color codes: ${colorPaletteString}, and here is the list of available color names: ${colorNames}` },
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'generateColorPalette',
+            description: 'Generates a string of the color palette that matches the provided list of hex color codes',
+            parameters: {
+              type: 'object',
+              properties: {
+                colorPalette: {
+                  type: 'string',
+                  description: 'The color palette string',
+                },
+              },
+              required: ['colorPalette'],
+            },
+          },
+        },
+      ],
+      tool_choice: { type: 'function', function: { name: 'generateColorPalette' } },
+    });
+
+    const colorPaletteResult = colorPalette.choices[0].message.tool_calls?.[0].function.arguments;
+    if (!colorPaletteResult) {
+      throw new HttpError(500, 'Bad response from OpenAI');
+    }
+
+    const colorPaletteNames = JSON.parse(colorPaletteResult).colorPalette;
+    console.log('colorPaletteNames: ', colorPaletteNames);
+    colorPalettePrompt = `The image prompt should have a color palette of ${colorPaletteNames}.`;
+  }
+  if (isUsingBrandSettings) {
+    brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
+  }
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       {
         role: 'system',
-        content: `You are an expert blog and social media image prompt engineer. You will be given a title or topic and your job is to create different image prompts in a single sentence that fit the title or topic. Do not include any mention of text, words, brands, or logos, as you will be penalized if you do. The prompts should not add text within the image.`,
+        content: `
+          You are an expert blog and social media image prompt engineer. 
+          You will be given a title or topic along with an example prompt and an image style. 
+          Your job is to create different image prompts strongly based on the title or topic. 
+          Use the example prompt and suggested image styles as a close guide, but ultimately use the title/topic of the post as the main idea within the prompt. 
+          DO NOT create complex or overly abstract prompts. 
+          DO NOT include any mention of text, words, brands, or logos, as you will be penalized if you do. 
+          The prompts should not add text within the image.`,
       },
       {
         role: 'user',
-        content: `Please create three different image prompts for the center part of an image for a social media or blog post with the title: ${title}. Make them obviously relate to the title, so that the image is easy to understand. Do not make them too abstract. Only return the prompt for the center content of the image. Do not include information about the image style, mood, or lighting.  Do not include any mention of text, words, brands, or logos, as you will be penalized if you do.`,
+        content: `
+          Please create three different image prompts for a social media or blog post with the title: ${title}. 
+          The image being generated is using a LoRA in the style of ${imageTemplate.description ?? imageTemplate.name}. 
+          ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
+          ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''} 
+          Use the example prompt as a guide only, and make sure to prioritize the user provided information in your prompts such as title/topic, style, mood, and/or color palette. Do not include any mention of text, words, brands, or logos, as you will be penalized if you do. 
+          Here is the example prompt: ${imageTemplate.exampleImagePrompt}`,
       },
     ],
     tools: [
@@ -116,27 +185,12 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, i
                       type: 'string',
                       description: 'The actual image generation prompt',
                     },
-                    style: {
-                      type: 'string',
-                      description: 'The artistic style applied',
-                      enum: Object.values(ImageStyle),
-                    },
-                    mood: {
-                      type: 'string',
-                      description: 'The emotional tone',
-                      enum: Object.values(ImageMood),
-                    },
-                    lighting: {
-                      type: 'string',
-                      description: 'The lighting conditions',
-                      enum: Object.values(ImageLighting),
-                    },
                   },
-                  required: ['prompt', 'style', 'mood', 'lighting'],
+                  required: ['prompt'],
                 },
               },
             },
-            required: ['prompts'],
+            required: ['promptData'],
           },
         },
       },
@@ -145,7 +199,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, i
   });
 
   const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
-  console.log('result: ', completion.choices[0].message.tool_calls?.[0].function);
+  console.log('result: ', result);
   if (!result) {
     throw new HttpError(500, 'Bad response from OpenAI');
   }
@@ -153,7 +207,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string, i
   return JSON.parse(result);
 };
 
-export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptVariations> = async ({ initialPrompt }, context) => {
+export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, { variations: { prompt: string }[] }> = async ({ initialPrompt }, context) => {
   // if (!context.user) {
   //   throw new HttpError(401);
   // }
@@ -186,31 +240,14 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
             properties: {
               variations: {
                 type: 'array',
-                description: 'Array of four prompt variations',
                 items: {
                   type: 'object',
                   properties: {
                     prompt: {
                       type: 'string',
-                      description: 'The modified prompt text',
-                    },
-                    style: {
-                      type: 'string',
-                      description: 'The artistic style applied',
-                      enum: Object.values(ImageStyle),
-                    },
-                    mood: {
-                      type: 'string',
-                      description: 'The emotional tone',
-                      enum: Object.values(ImageMood),
-                    },
-                    lighting: {
-                      type: 'string',
-                      description: 'The lighting conditions',
-                      enum: Object.values(ImageLighting),
+                      description: 'The variations of the initial prompt',
                     },
                   },
-                  required: ['prompt', 'style', 'mood', 'lighting'],
                 },
               },
             },
@@ -228,7 +265,7 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
     temperature: 1,
   });
 
-  // example output: {"variations":[{"prompt":"a turtle riding a vibrant skateboard in a busy urban setting with graffiti-filled walls","style":"digital art","mood":"energetic","lighting":"neon"},{"prompt":"a turtle gracefully riding a skateboard on a serene beach at sunset","style":"watercolor","mood":"peaceful","lighting":"soft"},{"prompt":"a realistic depiction of a turtle balancing skillfully on a skateboard in a sunlit park","style":"photorealistic","mood":"bright","lighting":"natural"}]}
+  // example output {"promptVariations":[{"prompt":"a turtle riding a vibrant skateboard in a busy urban setting with graffiti-filled walls"},{"prompt":"a turtle gracefully riding a skateboard on a serene beach at sunset"},{"prompt":"a realistic depiction of a turtle balancing skillfully on a skateboard in a sunlit park"}]}
   const gptArgs = completion?.choices[0]?.message?.tool_calls?.[0]?.function.arguments;
 
   if (!gptArgs) {
@@ -240,8 +277,8 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, PromptV
   return JSON.parse(gptArgs);
 };
 
-export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBrandSettings?: boolean; useBrandColors?: boolean }, GeneratedImageData[]> = async (
-  { centerInfoPrompts, useBrandSettings, useBrandColors },
+export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; postTopic?: string; useBrandSettings?: boolean; useBrandColors?: boolean }, GeneratedImageData[]> = async (
+  { centerInfoPrompts, postTopic, useBrandSettings, useBrandColors },
   context
 ) => {
   if (!context.user) {
@@ -252,10 +289,12 @@ export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBr
   let brandTheme: BrandTheme | null = null;
   if (useBrandColors) {
     brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
-    colorPalette = brandTheme?.colorScheme.map((color) => ({ color_hex: color }));
+    colorPalette = {
+      members: brandTheme?.colorScheme.map((color) => ({ color_hex: color })) || [],
+    };
   }
 
-  const centerInfoPromptsWithoutPunctuation = centerInfoPrompts.map(prompt => prompt.endsWith('.') ? prompt.slice(0, -1) : prompt);
+  const centerInfoPromptsWithoutPunctuation = centerInfoPrompts.map((prompt) => (prompt.endsWith('.') ? prompt.slice(0, -1) : prompt));
 
   const backgroundColor = 'black';
   const orientation = 'landscape';
@@ -271,34 +310,39 @@ export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBr
   let imageLightings: string[] = getRandomElements(Object.values(ImageLighting), 3);
 
   if (useBrandSettings && brandTheme) {
-    imageMoods = brandTheme.mood?.length ? [
-      ...brandTheme.mood,
-      ...getRandomElements(
-        Object.values(ImageMood).filter(m => !brandTheme!.mood.includes(m)),
-        Math.max(0, 3 - brandTheme.mood.length)
-      )
-    ] : imageMoods;
+    imageMoods = brandTheme.mood?.length
+      ? [
+          ...brandTheme.mood,
+          ...getRandomElements(
+            Object.values(ImageMood).filter((m) => !brandTheme!.mood.includes(m)),
+            Math.max(0, 3 - brandTheme.mood.length)
+          ),
+        ]
+      : imageMoods;
 
-    imageLightings = brandTheme.lighting?.length ? [
-      ...brandTheme.lighting,
-      ...getRandomElements(
-        Object.values(ImageLighting).filter(l => !brandTheme!.lighting.includes(l)), 
-        Math.max(0, 3 - brandTheme.lighting.length)
-      )
-    ] : imageLightings;
+    imageLightings = brandTheme.lighting?.length
+      ? [
+          ...brandTheme.lighting,
+          ...getRandomElements(
+            Object.values(ImageLighting).filter((l) => !brandTheme!.lighting.includes(l)),
+            Math.max(0, 3 - brandTheme.lighting.length)
+          ),
+        ]
+      : imageLightings;
 
-    imageStyles = brandTheme.preferredStyles?.length ? [
-      ...brandTheme.preferredStyles,
-      ...getRandomElements(
-        Object.values(ImageStyle).filter(s => !brandTheme!.preferredStyles.includes(s)),
-        Math.max(0, 3 - brandTheme.preferredStyles.length) 
-      )
-    ] : imageStyles;
+    imageStyles = brandTheme.preferredStyles?.length
+      ? [
+          ...brandTheme.preferredStyles,
+          ...getRandomElements(
+            Object.values(ImageStyle).filter((s) => !brandTheme!.preferredStyles.includes(s)),
+            Math.max(0, 3 - brandTheme.preferredStyles.length)
+          ),
+        ]
+      : imageStyles;
   }
 
-  const generateSingleBanner = async ({index, userId, centerInfoPrompt}: {index: number, userId: string, centerInfoPrompt: string}) => {
+  const generateSingleBanner = async ({ index, userId, centerInfoPrompt }: { index: number; userId: string; centerInfoPrompt?: string }) => {
     const combinedImagePrompt = `A ${imageMoods[index]} ${imageStyles[index]} with ${orientation} orientation and a ${backgroundColor} background. In the center of the image, ${centerInfoPrompt}. The ${secondPart} and ${thirdPart} parts of the image are empty, leaving space for the center content to be the main focus of the image. The lighting is ${imageLightings[index]}.`;
-
     try {
       const response = await axios.post(
         `${IDEOGRAM_BASE_URL}/generate`,
@@ -308,7 +352,7 @@ export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBr
             model: 'V_2',
             magic_prompt_option: 'OFF',
             resolution: IdeogramImageResolution.DEVTO,
-            ...(colorPalette ? { color_palette: { members: colorPalette } } : undefined),
+            ...(colorPalette ? { color_palette: colorPalette } : undefined),
             // seed: seed ? seed + index : undefined,
           },
         },
@@ -328,7 +372,7 @@ export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBr
       return await context.entities.GeneratedImageData.create({
         data: {
           url: imageData.url,
-          prompt: imageData.prompt,
+          userPrompt: combinedImagePrompt,
           seed: imageData.seed,
           style: imageData.style_type,
           resolution: imageData.resolution,
@@ -348,28 +392,108 @@ export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; useBr
   const userId = context.user.id;
 
   try {
-    return await Promise.all(centerInfoPromptsWithoutPunctuation.map((prompt, index) => generateSingleBanner({index, userId, centerInfoPrompt: prompt})));
+    return await Promise.all(centerInfoPromptsWithoutPunctuation.map((prompt, index) => generateSingleBanner({ index, userId, centerInfoPrompt: prompt })));
   } catch (error: any) {
     throw new HttpError(500, `Failed to generate banners: ${error.message}`);
   }
 };
 
-export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, GeneratedImageData[]> = async (_args, context) => {
+export const getImageTemplates: GetImageTemplates<void, ImageTemplate[]> = async (_args, context) => {
+  return await context.entities.ImageTemplate.findMany();
+};
+
+export const getImageTemplateById: GetImageTemplateById<{ id: string }, ImageTemplate> = async ({ id }, context) => {
+  return await context.entities.ImageTemplate.findUniqueOrThrow({
+    where: { id },
+  });
+};
+
+type GeneratedImageDataWithTemplate = GeneratedImageData & { imageTemplate: ImageTemplate | null };
+
+export const generateBannerFromTemplate: GenerateBannerFromTemplate<{ imageTemplate: ImageTemplate; userPrompt: string; postTopic?: string; aspectRatio?: string }, GeneratedImageDataWithTemplate> = async (
+  { imageTemplate, userPrompt, postTopic, aspectRatio },
+  context
+) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+
+  const combinedPrompt = `${imageTemplate.loraTriggerWord ? `${imageTemplate.loraTriggerWord}: ` : ''}${userPrompt}`;
+
+  // create a random number between 1 and 2^32-1 (2147483647) which is the max value for a 32-bit signed int aka Postgres integer
+  const seed = Math.floor(Math.random() * 2147483647) + 1; // Max 32-bit signed int (2^31 - 1)
+  const aspect_ratio = '21:9';
+  const input = {
+    seed,
+    prompt: combinedPrompt,
+    go_fast: true,
+    guidance: 3,
+    lora_scale: 1,
+    megapixels: '1',
+    num_outputs: 1,
+    aspect_ratio,
+    lora_weights: imageTemplate.loraUrl,
+    output_format: 'webp',
+    output_quality: 100,
+    prompt_strength: 0.8,
+    num_inference_steps: 32,
+  };
+
+  function onProgress(prediction: Prediction) {
+    console.log({ prediction });
+  }
+
+  const [output] = (await replicate.run('black-forest-labs/flux-dev-lora', { input })) as FileOutput[];
+
+  const fileUrl = output.url().href;
+  console.log('raw fileOutput from replicate: ', await output.blob());
+  console.log('fileUrl from replicate: ', fileUrl);
+
+  return await context.entities.GeneratedImageData.create({
+    data: {
+      url: fileUrl,
+      seed,
+      postTopic,
+      userPrompt: combinedPrompt,
+      style: `flux-dev-lora-${imageTemplate.loraUrl}`,
+      resolution: aspect_ratio,
+      imageTemplate: {
+        connect: { id: imageTemplate.id },
+      },
+      user: {
+        connect: { id: context.user.id },
+      },
+    },
+    include: {
+      imageTemplate: true,
+    },
+  });
+};
+
+export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, GeneratedImageDataWithTemplate[]> = async (_args, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
 
   return await context.entities.GeneratedImageData.findMany({
     where: { userId: context.user.id },
+    include: {
+      imageTemplate: true,
+    },
     orderBy: { createdAt: 'desc' },
   });
 };
 
-export const getGeneratedImageDataById: GetGeneratedImageDataById<{ id: string }, GeneratedImageData> = async ({ id }, context) => {
+export const getGeneratedImageDataById: GetGeneratedImageDataById<{ id: string }, GeneratedImageDataWithTemplate> = async ({ id }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
-  return await context.entities.GeneratedImageData.findUniqueOrThrow({ where: { id, userId: context.user.id } });
+  return await context.entities.GeneratedImageData.findUniqueOrThrow({
+    where: { id, userId: context.user.id },
+    include: {
+      imageTemplate: true,
+    },
+  });
 };
 
 export const getImageProxy: GetImageProxy<{ url: string }, string> = async ({ url }, context) => {

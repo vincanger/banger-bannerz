@@ -2,32 +2,39 @@ import type { FC } from 'react';
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
-import { generatePromptFromTitle, generateBanner, useQuery, getGeneratedImageDataById, getBrandTheme, getBrandThemeSettings } from 'wasp/client/operations';
+import { generatePromptFromTitle, getImageTemplateById, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, generatePrompts } from 'wasp/client/operations';
 import { ExampleImageUpload } from './ExampleImageUpload';
-import { GeneratedImageData } from 'wasp/entities';
+import { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 import { ImageGrid } from './ImageGrid';
 import { RecentGeneratedImages } from './RecentGeneratedImages';
 import { Modal } from './Modal';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams } from 'react-router-dom';
 import { FaEdit, FaHandSparkles, FaQuestionCircle } from 'react-icons/fa';
 import { cn } from '../../client/cn';
 
+
 export type GenerateImageSource = 'topic' | 'prompt';
+
+export interface GeneratedImageDataWithTemplate extends GeneratedImageData {
+  imageTemplate: ImageTemplate | null;
+}
 
 export const GenerateImagePrompt: FC = () => {
   const [postTopic, setPostTopic] = useState('');
   const [exampleImagePrompt, setExampleImagePrompt] = useState('');
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImageData[]>([]);
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImageDataWithTemplate[]>([]);
   const [isUsingBrandSettings, setIsUsingBrandSettings] = useState(false);
   const [isUsingBrandColors, setIsUsingBrandColors] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const { id: imageTemplateId } = useParams();
   const [searchParams] = useSearchParams();
   const generateBy = searchParams.get('generateBy') as GenerateImageSource;
   const imageId = searchParams.get('imageId');
 
   const { data: imageData, isLoading, error } = useQuery(getGeneratedImageDataById, { id: imageId ?? '' }, { enabled: !!imageId });
+  const { data: imageTemplate } = useQuery(getImageTemplateById, { id: imageTemplateId ?? '' }, { enabled: !!imageTemplateId });
   const { data: brandTheme } = useQuery(getBrandThemeSettings);
 
   const selectedIndex = generateBy === 'prompt' ? 1 : 0;
@@ -36,7 +43,7 @@ export const GenerateImagePrompt: FC = () => {
   useEffect(() => {
     if (generateBy === 'prompt' && imageId) {
       if (imageData && !isLoading) {
-        setCustomPrompt(imageData.prompt);
+        setCustomPrompt(imageData.userPrompt || '');
         setIsModalOpen(false);
       }
     } else {
@@ -54,17 +61,28 @@ export const GenerateImagePrompt: FC = () => {
 
   const handleGenerateImageFromTopic = async () => {
     try {
+      if (!imageTemplate) {
+        throw new Error('Image template is required');
+      }
+
       const generatedPrompts = await generatePromptFromTitle({
         title: postTopic,
         isUsingBrandSettings,
+        isUsingBrandColors,
+        imageTemplate,
       });
 
+      let combinedPrompts: string[] = [];
+      let generateBannerPromises: Promise<GeneratedImageDataWithTemplate>[];
 
-      const generatedBanners = await generateBanner({
-        centerInfoPrompts: generatedPrompts.promptData.map((data) => data.prompt),
-        useBrandSettings: isUsingBrandSettings,
-        useBrandColors: isUsingBrandColors,
+      combinedPrompts = generatedPrompts.promptData.map((data) => data.prompt);
+      generateBannerPromises = combinedPrompts.map((userPrompt) => {
+        return generateBannerFromTemplate({
+          imageTemplate,
+          userPrompt,
+        });
       });
+      const generatedBanners = await Promise.all(generateBannerPromises)
 
       setGeneratedImages(generatedBanners);
     } catch (error) {
@@ -74,9 +92,22 @@ export const GenerateImagePrompt: FC = () => {
 
   const handleGenerateImageFromPrompt = async () => {
     try {
-      // TODO: implement a generate image from pure prompt operation
-      // const generatedImages =
-      // setGeneratedImages([generatedImages]);
+      try {
+        const promptVariations = await generatePrompts({ initialPrompt: customPrompt });
+
+        // TODO: implement a generate image from pure prompt operation
+
+        // const generatedImageVariations = await generateBanner({
+        //   centerInfoPrompts: promptVariations.variations.map((variation) => variation.prompt),
+        //   useBrandSettings: false,
+        //   useBrandColors: true,
+        // });
+
+        // console.log('imageResults: ', generatedImageVariations);
+        // setGeneratedImages(generatedImageVariations);
+      } catch (error) {
+        console.error('Failed to generate prompts:', error);
+      }
     } catch (error) {
       console.error('Failed to generate image from prompt:', error);
     }
@@ -154,20 +185,21 @@ export const GenerateImagePrompt: FC = () => {
                     </label>
                   </div>
                   <div className='flex items-center'>
-                    <input type='checkbox' id='brand-colors' checked={isUsingBrandColors} onChange={(e) => setIsUsingBrandColors(e.target.checked)} className='rounded border-gray-300 text-yellow-500 focus:ring-yellow-500' />
+                    <input
+                      type='checkbox'
+                      id='brand-colors'
+                      checked={isUsingBrandColors}
+                      onChange={(e) => setIsUsingBrandColors(e.target.checked)}
+                      className='rounded border-gray-300 text-yellow-500 focus:ring-yellow-500'
+                    />
                     <label htmlFor='brand-colors' className='ml-2 text-sm text-gray-700 dark:text-gray-200'>
                       Use brand color scheme
                     </label>
                   </div>
                 </div>
 
-                {/* Example Image Section */}
-                <details className='mb-4'>
-                  <summary className='cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200'>Use an example image as a guide?</summary>
-                  <div className='mt-2'>
-                    <ExampleImageUpload setExampleImagePrompt={setExampleImagePrompt} />
-                  </div>
-                </details>
+                {/* Template Use Section */}
+                <div></div>
 
                 {/* Generate Button */}
                 <button onClick={handleGenerateImageFromTopic} disabled={!postTopic} className='w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'>
