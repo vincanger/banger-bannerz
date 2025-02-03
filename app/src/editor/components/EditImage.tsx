@@ -7,7 +7,7 @@ import * as fabric from 'fabric';
 import Editor from '../Editor';
 import { ImageGrid } from './ImageGrid';
 import { useParams } from 'react-router-dom';
-import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData, generateBanner } from 'wasp/client/operations';
+import { useQuery, getGeneratedImageDataById, getRecentGeneratedImageData } from 'wasp/client/operations';
 import { useAuth } from 'wasp/client/auth';
 import { Link } from 'wasp/client/router';
 

@@ -36,7 +36,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
               {/* Prompt with popover */}
               <div className='relative group/prompt'>
                 <p className='text-sm text-gray-600 max-w-md truncate'>{image.userPrompt}</p>
-                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10 max-w-md'>{image.imageTemplate?.loraTriggerWord ? `${image.imageTemplate.loraTriggerWord}: ${image.userPrompt}` : image.userPrompt}</div>
+                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10 max-w-md'>{image.userPrompt}</div>
               </div>
 
               {/* Actions */}
@@ -49,6 +49,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                         search: {
                           generateBy: 'prompt',
                           imageId: image.id,
+                          ...(image.imageTemplate?.id && { imageTemplateId: image.imageTemplate.id }),
                         },
                       })
                     );

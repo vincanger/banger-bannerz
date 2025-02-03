@@ -201,16 +201,6 @@ query getBrandThemeSettings {
 //#endregion
 
 //#region Banner
-route BannerRoute { path: "/banner", to: BannerPage }
-page BannerPage {
-  component: import BannerPage from "@src/banner/BannerPage"
-}
-
-action generateBanner {
-  fn: import { generateBanner } from "@src/banner/operations",
-  entities: [User, BrandTheme, GeneratedImageData]
-}
-
 query getImageTemplates {
   fn: import { getImageTemplates } from "@src/banner/operations",
   entities: [User, ImageTemplate]
@@ -228,7 +218,7 @@ action generateBannerFromTemplate {
 
 action generatePromptFromTitle {
   fn: import { generatePromptFromTitle } from "@src/banner/operations",
-  entities: [User, BrandTheme]
+  entities: [User, BrandTheme, ImageTemplate]
 }
 
 action generatePrompts {

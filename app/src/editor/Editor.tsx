@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, forwardRef } from 'react';
 import SidebarItem from './components/SidebarItem';
 import { getImageTemplates, useQuery } from 'wasp/client/operations';
 import { RecentGeneratedImages } from './components/RecentGeneratedImages';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Toolbar } from './components/Toolbar';
 import { Modal } from './components/Modal';
 
@@ -22,7 +22,6 @@ const Editor: FC<EditorProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRecentImagesModalOpen, setIsRecentImagesModalOpen] = useState(false);
   const [templates, setTemplates] = useState<ImageTemplate[]>([]);
-
   const { data: imageTemplates } = useQuery(getImageTemplates);
 
   useEffect(() => {
@@ -33,7 +32,9 @@ const Editor: FC<EditorProps> = ({ children }) => {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { id: templateId } = useParams();
+  const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const imageTemplateId = searchParams.get('imageTemplateId');
 
   // Get the active section from the current path
   const activeSidebarItemFromPath = (location.pathname.split('/')[1] as SidebarItem) || null;
@@ -43,16 +44,8 @@ const Editor: FC<EditorProps> = ({ children }) => {
 
   const isGenerateImagePath = currentPath === 'generate-image';
 
-  const handleSidebarItemClick = (item: SidebarItem) => {
-    if (item === 'recent-images') {
-      setIsRecentImagesModalOpen(true);
-    } else {
-      navigate(`/${item}`);
-    }
-  };
-
-  const handleTemplateSelect = (template: ImageTemplate) => {
-    navigate(`/generate-image/${template.id}`);
+  const handleTemplateSelect = (templateId: ImageTemplate['id']) => {
+    navigate(`/generate-image?imageTemplateId=${templateId}`);
   };
 
   return (
@@ -71,54 +64,45 @@ const Editor: FC<EditorProps> = ({ children }) => {
             <SidebarItem title='Create Base Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
             <SidebarItem title='Edit Image Prompt' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/edit-image')} />
             <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
-            <SidebarItem title='Settings' isActive={activeSidebarItemFromPath === 'settings'} icon={<FaCog className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('settings')} />
+            <SidebarItem title='Settings' isActive={activeSidebarItemFromPath === 'settings'} icon={<FaCog className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/settings')} />
             <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
-            <SidebarItem title='Images' isActive={activeSidebarItemFromPath === 'images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('images')} />
-            <SidebarItem title='Text' isActive={activeSidebarItemFromPath === 'text'} icon={<FaFont className='h-4 w-4 text-gray-500' />} onClick={() => handleSidebarItemClick('text')} />
+            <SidebarItem title='Images' isActive={activeSidebarItemFromPath === 'images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/images')} />
+            <SidebarItem title='Text' isActive={activeSidebarItemFromPath === 'text'} icon={<FaFont className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/text')} />
           </div>
         )}
       </div>
 
       {/* Template Images Sidebar - only shown on generate-image path */}
       {isGenerateImagePath && (
-        <div className='relative bg-white shadow-lg w-64'>
+        <div className='relative bg-white shadow-lg w-80'>
           <div className='absolute -right-6 top-4 z-10'>
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
               {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
             </button>
           </div>
           <div className='p-4'>
-            <h3 className='text-lg font-semibold mb-4'>Template Images</h3>
-            <div className='grid grid-cols-2 gap-2'>
-              {/* None template placeholder */}
-              <button
-                className='aspect-square w-full hover:drop-shadow-xl hover:scale-105 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 relative'
-                onClick={() => navigate('/generate-image')}
-              >
-                <div className='bg-gray-100 w-full h-full flex flex-col items-center justify-center'>
-                  <div className='text-gray-400 text-4xl'><FaBan /></div>
-                </div>
-                <p className='text-sm text-gray-500 mt-1'>No Template</p>
-                {!templateId && (
-                  <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
-                    <FaCheck className='w-3 h-3 text-white' />
-                  </div>
-                )}
-              </button>
+            <h3 className='text-lg font-semibold mb-4'>Choose a Style</h3>
+            <div className='grid grid-cols-2 gap-4'>
               {/* Existing templates */}
               {templates.map((template, index) => (
                 <button
                   key={index}
-                  className='aspect-square w-full hover:drop-shadow-xl hover:scale-105 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 relative'
-                  onClick={() => handleTemplateSelect(template)}
+                  className='flex items-end justify-center aspect-square w-full hover:drop-shadow-xl hover:border-black/30 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 border border-black/10 relative overflow-hidden rounded-sm'
+                  onClick={() => handleTemplateSelect(template.id)}
                 >
-                  <img src={template.exampleImageUrl} alt={template.name} className='h-full w-full object-cover' />
-                  <p className='text-sm text-gray-500 mt-1'>{template.name}</p>
-                  {templateId === template.id && (
+                  <img 
+                    src={template.exampleImageUrl} 
+                    alt={template.name} 
+                    className='h-[115%] w-[115%] object-cover absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' 
+                  />
+                  {imageTemplateId === template.id && (
                     <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
                       <FaCheck className='w-3 h-3 text-white' />
                     </div>
                   )}
+                  <div className='relative text-xs text-black bg-white/80 backdrop-blur-sm mb-1 px-1 rounded-sm'>
+                    {template.name}
+                  </div>
                 </button>
               ))}
             </div>
@@ -128,19 +112,11 @@ const Editor: FC<EditorProps> = ({ children }) => {
 
       {/* Main Content */}
       <div className='flex flex-1 flex-col'>
-        {/* Top Toolbar */}
-        <Toolbar isRecentImagesModalOpen={isRecentImagesModalOpen} setIsRecentImagesModalOpen={setIsRecentImagesModalOpen} />
-
-        {/* Canvas Area - Now using Outlet */}
         <div className='flex-1 overflow-auto p-8'>
           <div className='mx-auto w-full max-w-4xl'>{children}</div>
         </div>
       </div>
 
-      {/* Add Modal */}
-      <Modal isOpen={isRecentImagesModalOpen} onClose={() => setIsRecentImagesModalOpen(false)} title='Recently Generated Images'>
-        <RecentGeneratedImages />
-      </Modal>
     </div>
   );
 };

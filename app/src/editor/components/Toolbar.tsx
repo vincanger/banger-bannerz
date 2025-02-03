@@ -17,24 +17,22 @@ interface ToolbarProps {
 export const Toolbar: FC<ToolbarProps> = ({ isRecentImagesModalOpen, setIsRecentImagesModalOpen }) => {
   const { pathname } = useLocation();
 
-
   return (
     <div className='bg-white p-4 shadow-md'>
       <div className='flex items-center justify-between'>
         <div className='flex space-x-4'>
           {/* Add toolbar buttons/controls */}
-          {pathname === routes.GenerateImagePromptRoute.to && (
-            <>
-              <button className='flex items-center space-x-2 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600'>
-                <FaImages className='h-4 w-4' />
-                <span>Image Library</span>
-              </button>
-              <button className='flex items-center space-x-2 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600' onClick={() => setIsRecentImagesModalOpen(true)} >
-                <FaHistory className='h-4 w-4' />
-                <span>Recently Generated Images</span>
-              </button>
-            </>
-          )}
+
+          <>
+            <button className='flex items-center space-x-2 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600'>
+              <FaImages className='h-4 w-4' />
+              <span>Image Library</span>
+            </button>
+            <button className='flex items-center space-x-2 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600' onClick={() => setIsRecentImagesModalOpen(true)}>
+              <FaHistory className='h-4 w-4' />
+              <span>Recently Generated Images</span>
+            </button>
+          </>
         </div>
         <div>{/* Add additional toolbar controls */}</div>
       </div>

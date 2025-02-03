@@ -1,6 +1,5 @@
 import type { BrandTheme, GeneratedImageData, ImageTemplate, User } from 'wasp/entities';
 import type {
-  GenerateBanner,
   GeneratePrompts,
   GeneratePromptFromImage,
   GeneratePromptFromTitle,
@@ -26,8 +25,8 @@ import { HttpError } from 'wasp/server';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { openai } from '../demo-ai-app/operations';
 import { getUploadFileSignedURLFromS3 } from '../file-upload/s3Utils';
-import { ImageStyle, ImageMood, ImageLighting, IdeogramImageResolution } from './imageSettings';
 import { colorNames } from './colorNames';
+import { ImageStyle, ImageMood, ImageLighting, IdeogramImageResolution } from './imageSettings';
 
 const IDEOGRAM_BASE_URL = 'https://api.ideogram.ai';
 
@@ -75,8 +74,8 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; imageTemplate: ImageTemplate; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean }, { promptData: { prompt: string }[] }> = async (
-  { title, imageTemplate, isUsingBrandSettings, isUsingBrandColors },
+export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean }, { promptData: { prompt: string }[] }> = async (
+  { title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors },
   context
 ) => {
   if (!context.user) {
@@ -85,6 +84,11 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
 
   if (openai instanceof Error) {
     throw openai;
+  }
+
+  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } }); 
+  if (!imageTemplate) {
+    throw new HttpError(400, 'Image template not found');
   }
 
   let brandTheme: BrandTheme | null = null;
@@ -102,7 +106,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
       messages: [
         {
           role: 'system',
-          content: `You are an expert color palette engineer. You will be given a list of hex color codes and your job is to find the matching color names for each hex code from a provided list and return a string of the color palette.`,
+          content: `You are an expert color palette engineer. You will be given a list of hex color codes and your job is to find the matching color names for each hex code from a provided list and return the names of these colors as a string.`,
         },
         { role: 'user', content: `Here is the list of hex color codes: ${colorPaletteString}, and here is the list of available color names: ${colorNames}` },
       ],
@@ -135,7 +139,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
 
     const colorPaletteNames = JSON.parse(colorPaletteResult).colorPalette;
     console.log('colorPaletteNames: ', colorPaletteNames);
-    colorPalettePrompt = `The image prompt should have a color palette of ${colorPaletteNames}.`;
+    colorPalettePrompt = `The image prompt should use this color palette: ${colorPaletteNames}.`;
   }
   if (isUsingBrandSettings) {
     brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
@@ -277,127 +281,6 @@ export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, { varia
   return JSON.parse(gptArgs);
 };
 
-export const generateBanner: GenerateBanner<{ centerInfoPrompts: string[]; postTopic?: string; useBrandSettings?: boolean; useBrandColors?: boolean }, GeneratedImageData[]> = async (
-  { centerInfoPrompts, postTopic, useBrandSettings, useBrandColors },
-  context
-) => {
-  if (!context.user) {
-    throw new HttpError(401);
-  }
-
-  let colorPalette = null;
-  let brandTheme: BrandTheme | null = null;
-  if (useBrandColors) {
-    brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
-    colorPalette = {
-      members: brandTheme?.colorScheme.map((color) => ({ color_hex: color })) || [],
-    };
-  }
-
-  const centerInfoPromptsWithoutPunctuation = centerInfoPrompts.map((prompt) => (prompt.endsWith('.') ? prompt.slice(0, -1) : prompt));
-
-  const backgroundColor = 'black';
-  const orientation = 'landscape';
-  const secondPart = orientation === 'landscape' ? 'left' : 'top';
-  const thirdPart = orientation === 'landscape' ? 'right' : 'bottom';
-
-  const getRandomElements = <T>(array: T[], count: number): T[] => {
-    return [...array].sort(() => Math.random() - 0.5).slice(0, count);
-  };
-
-  let imageMoods: string[] = getRandomElements(Object.values(ImageMood), 3);
-  let imageStyles: string[] = getRandomElements(Object.values(ImageStyle), 3);
-  let imageLightings: string[] = getRandomElements(Object.values(ImageLighting), 3);
-
-  if (useBrandSettings && brandTheme) {
-    imageMoods = brandTheme.mood?.length
-      ? [
-          ...brandTheme.mood,
-          ...getRandomElements(
-            Object.values(ImageMood).filter((m) => !brandTheme!.mood.includes(m)),
-            Math.max(0, 3 - brandTheme.mood.length)
-          ),
-        ]
-      : imageMoods;
-
-    imageLightings = brandTheme.lighting?.length
-      ? [
-          ...brandTheme.lighting,
-          ...getRandomElements(
-            Object.values(ImageLighting).filter((l) => !brandTheme!.lighting.includes(l)),
-            Math.max(0, 3 - brandTheme.lighting.length)
-          ),
-        ]
-      : imageLightings;
-
-    imageStyles = brandTheme.preferredStyles?.length
-      ? [
-          ...brandTheme.preferredStyles,
-          ...getRandomElements(
-            Object.values(ImageStyle).filter((s) => !brandTheme!.preferredStyles.includes(s)),
-            Math.max(0, 3 - brandTheme.preferredStyles.length)
-          ),
-        ]
-      : imageStyles;
-  }
-
-  const generateSingleBanner = async ({ index, userId, centerInfoPrompt }: { index: number; userId: string; centerInfoPrompt?: string }) => {
-    const combinedImagePrompt = `A ${imageMoods[index]} ${imageStyles[index]} with ${orientation} orientation and a ${backgroundColor} background. In the center of the image, ${centerInfoPrompt}. The ${secondPart} and ${thirdPart} parts of the image are empty, leaving space for the center content to be the main focus of the image. The lighting is ${imageLightings[index]}.`;
-    try {
-      const response = await axios.post(
-        `${IDEOGRAM_BASE_URL}/generate`,
-        {
-          image_request: {
-            prompt: combinedImagePrompt,
-            model: 'V_2',
-            magic_prompt_option: 'OFF',
-            resolution: IdeogramImageResolution.DEVTO,
-            ...(colorPalette ? { color_palette: colorPalette } : undefined),
-            // seed: seed ? seed + index : undefined,
-          },
-        },
-        {
-          headers: {
-            'Api-Key': process.env.IDEOGRAM_API_KEY!,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (!response.data?.data?.[0]?.url) {
-        throw new Error('No image URL in response');
-      }
-      const imageData = response.data.data[0];
-
-      return await context.entities.GeneratedImageData.create({
-        data: {
-          url: imageData.url,
-          userPrompt: combinedImagePrompt,
-          seed: imageData.seed,
-          style: imageData.style_type,
-          resolution: imageData.resolution,
-          user: {
-            connect: {
-              id: userId,
-            },
-          },
-        },
-      });
-    } catch (error: any) {
-      console.error(`Failed to generate banner ${index + 1}:`, error.message);
-      throw new HttpError(500, `Failed to generate banner ${index + 1}: ${error.message}`);
-    }
-  };
-
-  const userId = context.user.id;
-
-  try {
-    return await Promise.all(centerInfoPromptsWithoutPunctuation.map((prompt, index) => generateSingleBanner({ index, userId, centerInfoPrompt: prompt })));
-  } catch (error: any) {
-    throw new HttpError(500, `Failed to generate banners: ${error.message}`);
-  }
-};
-
 export const getImageTemplates: GetImageTemplates<void, ImageTemplate[]> = async (_args, context) => {
   return await context.entities.ImageTemplate.findMany();
 };
@@ -410,64 +293,115 @@ export const getImageTemplateById: GetImageTemplateById<{ id: string }, ImageTem
 
 type GeneratedImageDataWithTemplate = GeneratedImageData & { imageTemplate: ImageTemplate | null };
 
-export const generateBannerFromTemplate: GenerateBannerFromTemplate<{ imageTemplate: ImageTemplate; userPrompt: string; postTopic?: string; aspectRatio?: string }, GeneratedImageDataWithTemplate> = async (
-  { imageTemplate, userPrompt, postTopic, aspectRatio },
-  context
-) => {
-  if (!context.user) {
-    throw new HttpError(401);
-  }
+interface LoraInput {
+  prompt: string;
+  lora_weights: string;
+  seed: number;
 
-  const combinedPrompt = `${imageTemplate.loraTriggerWord ? `${imageTemplate.loraTriggerWord}: ` : ''}${userPrompt}`;
+  go_fast?: boolean;
+  guidance?: number;
+  lora_scale?: number;
+  megapixels?: string;
+  num_outputs?: number;
+  aspect_ratio?: string;
+  output_format?: string;
+  output_quality?: number;
+  prompt_strength?: number;
+  num_inference_steps?: number;
+}
 
-  // create a random number between 1 and 2^32-1 (2147483647) which is the max value for a 32-bit signed int aka Postgres integer
-  const seed = Math.floor(Math.random() * 2147483647) + 1; // Max 32-bit signed int (2^31 - 1)
-  const aspect_ratio = '21:9';
-  const input = {
-    seed,
-    prompt: combinedPrompt,
+function createLoraInput(params: Required<Pick<LoraInput, 'prompt' | 'lora_weights' | 'seed'>> & Partial<LoraInput>): LoraInput {
+  const LORA_DEFAULTS = {
     go_fast: true,
     guidance: 3,
     lora_scale: 1,
     megapixels: '1',
     num_outputs: 1,
-    aspect_ratio,
-    lora_weights: imageTemplate.loraUrl,
+    aspect_ratio: '21:9',
     output_format: 'webp',
     output_quality: 100,
     prompt_strength: 0.8,
     num_inference_steps: 32,
-  };
+  } as const;
 
-  function onProgress(prediction: Prediction) {
-    console.log({ prediction });
+  return {
+    ...LORA_DEFAULTS,
+    ...params, // This will override any of the defaults if provided
+  };
+}
+
+async function generateImageFromLora(params: { prompt: string; loraWeights: string; seed: number; aspectRatio?: string; numOutputs?: number }): Promise<FileOutput[]> {
+  const input = createLoraInput({
+    prompt: params.prompt,
+    lora_weights: params.loraWeights,
+    seed: params.seed,
+    ...(params.aspectRatio && { aspect_ratio: params.aspectRatio }),
+    ...(params.numOutputs && { num_outputs: params.numOutputs }),
+  });
+
+  const output = (await replicate.run('black-forest-labs/flux-dev-lora', { input })) as FileOutput[];
+
+  return output;
+}
+
+function generateSeed(): number {
+  return Math.floor(Math.random() * 2147483647) + 1;
+}
+
+export const generateBannerFromTemplate: GenerateBannerFromTemplate<
+  { 
+    imageTemplateId: ImageTemplate['id']; 
+    userPrompt: string; 
+    postTopic?: string; 
+    aspectRatio?: string; 
+    numOutputs?: number;
+    seed?: number;
+  },
+  GeneratedImageDataWithTemplate[]
+> = async ({ imageTemplateId, userPrompt, numOutputs = 3, postTopic, aspectRatio = '21:9', seed }, context) => {
+  if (!context.user) {
+    throw new HttpError(401, 'User not found');
   }
 
-  const [output] = (await replicate.run('black-forest-labs/flux-dev-lora', { input })) as FileOutput[];
+  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
+  if (!imageTemplate.loraUrl) {
+    throw new HttpError(400, 'Lora weights URL is required');
+  }
 
-  const fileUrl = output.url().href;
-  console.log('raw fileOutput from replicate: ', await output.blob());
-  console.log('fileUrl from replicate: ', fileUrl);
+  const combinedPrompt = `${imageTemplate.loraTriggerWord ? `${imageTemplate.loraTriggerWord}: ` : ''}${userPrompt}`;
+  const useSeed = seed ?? generateSeed();
 
-  return await context.entities.GeneratedImageData.create({
-    data: {
-      url: fileUrl,
-      seed,
-      postTopic,
-      userPrompt: combinedPrompt,
-      style: `flux-dev-lora-${imageTemplate.loraUrl}`,
-      resolution: aspect_ratio,
-      imageTemplate: {
-        connect: { id: imageTemplate.id },
-      },
-      user: {
-        connect: { id: context.user.id },
-      },
-    },
-    include: {
-      imageTemplate: true,
-    },
+  const output = await generateImageFromLora({
+    prompt: combinedPrompt,
+    loraWeights: imageTemplate.loraUrl,
+    seed: useSeed,
+    aspectRatio,
+    numOutputs,
   });
+
+  const generatedImages = await Promise.all(output.map(file => 
+    context.entities.GeneratedImageData.create({
+      data: {
+        url: file.url().href,
+        seed: useSeed,
+        postTopic,
+        userPrompt,
+        style: `flux-dev-lora-${imageTemplate.loraUrl}`,
+        resolution: aspectRatio,
+        imageTemplate: {
+          connect: { id: imageTemplate.id },
+        },
+        user: {
+          connect: { id: context.user!.id },
+        },
+      },
+      include: {
+        imageTemplate: true,
+      },
+    })
+  ));
+
+  return generatedImages;
 };
 
 export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, GeneratedImageDataWithTemplate[]> = async (_args, context) => {

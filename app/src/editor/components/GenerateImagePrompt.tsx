@@ -2,7 +2,7 @@ import type { FC } from 'react';
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
-import { generatePromptFromTitle, getImageTemplateById, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, generatePrompts } from 'wasp/client/operations';
+import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings } from 'wasp/client/operations';
 import { ExampleImageUpload } from './ExampleImageUpload';
 import { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 import { ImageGrid } from './ImageGrid';
@@ -11,7 +11,7 @@ import { Modal } from './Modal';
 import { useSearchParams, useParams } from 'react-router-dom';
 import { FaEdit, FaHandSparkles, FaQuestionCircle } from 'react-icons/fa';
 import { cn } from '../../client/cn';
-
+import { set } from 'zod';
 
 export type GenerateImageSource = 'topic' | 'prompt';
 
@@ -21,20 +21,20 @@ export interface GeneratedImageDataWithTemplate extends GeneratedImageData {
 
 export const GenerateImagePrompt: FC = () => {
   const [postTopic, setPostTopic] = useState('');
-  const [exampleImagePrompt, setExampleImagePrompt] = useState('');
   const [generatedImages, setGeneratedImages] = useState<GeneratedImageDataWithTemplate[]>([]);
   const [isUsingBrandSettings, setIsUsingBrandSettings] = useState(false);
   const [isUsingBrandColors, setIsUsingBrandColors] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState('');
+  const [userPrompt, setUserPrompt] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [numOutputs, setNumOutputs] = useState(3);
+  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
 
-  const { id: imageTemplateId } = useParams();
   const [searchParams] = useSearchParams();
   const generateBy = searchParams.get('generateBy') as GenerateImageSource;
   const imageId = searchParams.get('imageId');
+  const imageTemplateId = searchParams.get('imageTemplateId');
 
   const { data: imageData, isLoading, error } = useQuery(getGeneratedImageDataById, { id: imageId ?? '' }, { enabled: !!imageId });
-  const { data: imageTemplate } = useQuery(getImageTemplateById, { id: imageTemplateId ?? '' }, { enabled: !!imageTemplateId });
   const { data: brandTheme } = useQuery(getBrandThemeSettings);
 
   const selectedIndex = generateBy === 'prompt' ? 1 : 0;
@@ -43,11 +43,11 @@ export const GenerateImagePrompt: FC = () => {
   useEffect(() => {
     if (generateBy === 'prompt' && imageId) {
       if (imageData && !isLoading) {
-        setCustomPrompt(imageData.userPrompt || '');
+        setUserPrompt(imageData.userPrompt || '');
         setIsModalOpen(false);
       }
     } else {
-      setCustomPrompt('');
+      setUserPrompt('');
     }
     setSelectedTab(generateBy === 'prompt' ? 1 : 0);
   }, [generateBy, imageId, imageData, isLoading]);
@@ -59,9 +59,10 @@ export const GenerateImagePrompt: FC = () => {
     }
   }, [brandTheme]);
 
-  const handleGenerateImageFromTopic = async () => {
+  const handleGenerateImageFromTitle = async () => {
     try {
-      if (!imageTemplate) {
+      setIsGeneratingImages(true);
+      if (!imageTemplateId) {
         throw new Error('Image template is required');
       }
 
@@ -69,47 +70,48 @@ export const GenerateImagePrompt: FC = () => {
         title: postTopic,
         isUsingBrandSettings,
         isUsingBrandColors,
-        imageTemplate,
+        imageTemplateId,
       });
 
       let combinedPrompts: string[] = [];
-      let generateBannerPromises: Promise<GeneratedImageDataWithTemplate>[];
 
       combinedPrompts = generatedPrompts.promptData.map((data) => data.prompt);
-      generateBannerPromises = combinedPrompts.map((userPrompt) => {
-        return generateBannerFromTemplate({
-          imageTemplate,
-          userPrompt,
-        });
-      });
-      const generatedBanners = await Promise.all(generateBannerPromises)
+      const generatedBannerArrays = await Promise.all(
+        combinedPrompts.map((userPrompt) => {
+          return generateBannerFromTemplate({
+            imageTemplateId,
+            userPrompt,
+            numOutputs: 1,
+            postTopic,
+          });
+        })
+      );
 
-      setGeneratedImages(generatedBanners);
+      setGeneratedImages(generatedBannerArrays.flat());
     } catch (error) {
       console.error('Failed to generate prompt from title:', error);
+    } finally {
+      setIsGeneratingImages(false);
     }
   };
 
   const handleGenerateImageFromPrompt = async () => {
+    console.log('userPrompt: ', userPrompt);
+    if (!imageTemplateId) {
+      throw new Error('Image template ID is required');
+    }
     try {
-      try {
-        const promptVariations = await generatePrompts({ initialPrompt: customPrompt });
-
-        // TODO: implement a generate image from pure prompt operation
-
-        // const generatedImageVariations = await generateBanner({
-        //   centerInfoPrompts: promptVariations.variations.map((variation) => variation.prompt),
-        //   useBrandSettings: false,
-        //   useBrandColors: true,
-        // });
-
-        // console.log('imageResults: ', generatedImageVariations);
-        // setGeneratedImages(generatedImageVariations);
-      } catch (error) {
-        console.error('Failed to generate prompts:', error);
-      }
+      setIsGeneratingImages(true);
+      const generatedImages = await generateBannerFromTemplate({
+        userPrompt,
+        imageTemplateId,
+        numOutputs,
+      });
+      setGeneratedImages(generatedImages);
     } catch (error) {
-      console.error('Failed to generate image from prompt:', error);
+      console.error('Failed to generate prompts:', error);
+    } finally {
+      setIsGeneratingImages(false);
     }
   };
 
@@ -202,9 +204,12 @@ export const GenerateImagePrompt: FC = () => {
                 <div></div>
 
                 {/* Generate Button */}
-                <button onClick={handleGenerateImageFromTopic} disabled={!postTopic} className='w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'>
-                  Generate Images
-                </button>
+                <LoadingButton
+                  onClick={handleGenerateImageFromTitle}
+                  disabled={!postTopic}
+                  isLoading={isGeneratingImages}
+                  text="Generate Images"
+                />
               </div>
             </Tab.Panel>
 
@@ -236,18 +241,34 @@ export const GenerateImagePrompt: FC = () => {
                 {/* Prompt Textarea */}
                 <div>
                   <textarea
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    value={userPrompt}
+                    onChange={(e) => setUserPrompt(e.target.value)}
                     className='w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800'
                     rows={4}
                     placeholder={'Enter your prompt or choose a recent image above...'}
                   />
                 </div>
 
+                {/* Number of Outputs */}
+                <div className='flex items-center space-x-2'>
+                  <label htmlFor='num-outputs' className='text-sm text-gray-700 dark:text-gray-200'>
+                    Number of Images to Generate
+                  </label>
+                  <input
+                    type='number'
+                    className='w-16 rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
+                    value={numOutputs}
+                    onChange={(e) => setNumOutputs(parseInt(e.target.value))}
+                  />
+                </div>
+
                 {/* Generate Button */}
-                <button disabled={!customPrompt} onClick={handleGenerateImageFromPrompt} className='w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed'>
-                  Generate Images
-                </button>
+                <LoadingButton
+                  onClick={handleGenerateImageFromPrompt}
+                  disabled={!userPrompt}
+                  isLoading={isGeneratingImages}
+                  text="Generate Images"
+                />
               </div>
             </Tab.Panel>
           </Tab.Panels>
@@ -262,5 +283,34 @@ export const GenerateImagePrompt: FC = () => {
         <RecentGeneratedImages />
       </Modal>
     </Editor>
+  );
+};
+
+interface LoadingButtonProps {
+  onClick: () => void;
+  disabled: boolean;
+  isLoading: boolean;
+  text: string;
+  className?: string;
+}
+
+export const LoadingButton: FC<LoadingButtonProps> = ({ onClick, disabled, isLoading, text, className }) => {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || isLoading}
+      className={cn('w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center', className)}
+    >
+      {isLoading ? (
+        <>
+          <svg className='animate-spin -ml-1 mr-3 h-5 w-5 text-white' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+            <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+            <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+          </svg>
+        </>
+      ) : (
+        text
+      )}
+    </button>
   );
 };
