@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useQuery } from 'wasp/client/operations';
 import { getRecentGeneratedImageData } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
+import Editor from '../Editor';
 
 export const RecentGeneratedImages: FC = () => {
   const { data: recentImages, isLoading, error } = useQuery(getRecentGeneratedImageData);
@@ -16,25 +17,20 @@ export const RecentGeneratedImages: FC = () => {
   }
 
   if (error) {
-    return (
-      <div className='p-4 text-red-500'>
-        Error loading recent images: {error.message}
-      </div>
-    );
+    return <div className='p-4 text-red-500'>Error loading recent images: {error.message}</div>;
   }
 
   if (!recentImages?.length) {
     return (
-      <div className='p-4 text-gray-500 dark:text-gray-400'>
-        No recent images found
-      </div>
+      <Editor>
+        <div className='p-4 text-gray-500 dark:text-gray-400'>No recent images found</div>
+      </Editor>
     );
   }
 
   return (
-    <ImageGrid
-      images={recentImages}
-    />
+    <Editor>
+      <ImageGrid images={recentImages} />
+    </Editor>
   );
 };
-

@@ -74,10 +74,10 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean }, { promptData: { prompt: string }[] }> = async (
-  { title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors },
-  context
-) => {
+export const generatePromptFromTitle: GeneratePromptFromTitle<
+  { title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean; numOutputs: number },
+  { promptArray: { prompt: string }[] }
+> = async ({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -86,7 +86,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
     throw openai;
   }
 
-  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } }); 
+  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
   if (!imageTemplate) {
     throw new HttpError(400, 'Image template not found');
   }
@@ -145,6 +145,8 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
     brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
   }
 
+  console.log('numOutputs: ', numOutputs);
+
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
@@ -153,16 +155,16 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
         content: `
           You are an expert blog and social media image prompt engineer. 
           You will be given a title or topic along with an example prompt and an image style. 
-          Your job is to create different image prompts strongly based on the title or topic. 
+          Your job is to create an image prompt based on the title or topic. 
           Use the example prompt and suggested image styles as a close guide, but ultimately use the title/topic of the post as the main idea within the prompt. 
-          DO NOT create complex or overly abstract prompts. 
+          DO NOT create complex, abstract, or conceptual prompts. 
           DO NOT include any mention of text, words, brands, or logos, as you will be penalized if you do. 
           The prompts should not add text within the image.`,
       },
       {
         role: 'user',
         content: `
-          Please create three different image prompts for a social media or blog post with the title: ${title}. 
+          Please create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}. 
           The image being generated is using a LoRA in the style of ${imageTemplate.description ?? imageTemplate.name}. 
           ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
           ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''} 
@@ -175,26 +177,25 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<{ title: string; i
         type: 'function',
         function: {
           name: 'generateImagePrompts',
-          description: 'Generates 3 different image prompt concepts for the center part of a social media or blog post',
+          description: `Generates ${numOutputs === 1 ? `${numOutputs} image prompt` : `${numOutputs} image prompts`} for a social media or blog post`,
           parameters: {
             type: 'object',
             properties: {
-              promptData: {
+              promptArray: {
                 type: 'array',
-                description: 'Array of 3 different image prompt concepts for the center part of an image',
+                description: `an array of ${numOutputs === 1 ? '1 image generation prompt' : `${numOutputs} image generation prompts`}`,
                 items: {
                   type: 'object',
                   properties: {
                     prompt: {
                       type: 'string',
-                      description: 'The actual image generation prompt',
+                      description: 'the image generation prompt',
                     },
                   },
-                  required: ['prompt'],
                 },
               },
             },
-            required: ['promptData'],
+            required: ['promptArray'],
           },
         },
       },
@@ -349,11 +350,11 @@ function generateSeed(): number {
 }
 
 export const generateBannerFromTemplate: GenerateBannerFromTemplate<
-  { 
-    imageTemplateId: ImageTemplate['id']; 
-    userPrompt: string; 
-    postTopic?: string; 
-    aspectRatio?: string; 
+  {
+    imageTemplateId: ImageTemplate['id'];
+    userPrompt: string;
+    postTopic?: string;
+    aspectRatio?: string;
     numOutputs?: number;
     seed?: number;
   },
@@ -379,27 +380,29 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
     numOutputs,
   });
 
-  const generatedImages = await Promise.all(output.map(file => 
-    context.entities.GeneratedImageData.create({
-      data: {
-        url: file.url().href,
-        seed: useSeed,
-        postTopic,
-        userPrompt,
-        style: `flux-dev-lora-${imageTemplate.loraUrl}`,
-        resolution: aspectRatio,
-        imageTemplate: {
-          connect: { id: imageTemplate.id },
+  const generatedImages = await Promise.all(
+    output.map((file) =>
+      context.entities.GeneratedImageData.create({
+        data: {
+          url: file.url().href,
+          seed: useSeed,
+          postTopic,
+          userPrompt,
+          style: `flux-dev-lora-${imageTemplate.loraUrl}`,
+          resolution: aspectRatio,
+          imageTemplate: {
+            connect: { id: imageTemplate.id },
+          },
+          user: {
+            connect: { id: context.user!.id },
+          },
         },
-        user: {
-          connect: { id: context.user!.id },
+        include: {
+          imageTemplate: true,
         },
-      },
-      include: {
-        imageTemplate: true,
-      },
-    })
-  ));
+      })
+    )
+  );
 
   return generatedImages;
 };
@@ -540,19 +543,31 @@ export const saveBrandThemeSettings: SaveBrandThemeSettings<{ brandTheme: Partia
     throw new HttpError(401);
   }
 
-  return await context.entities.BrandTheme.upsert({
-    where: { id: brandTheme.id },
-    update: brandTheme,
-    create: {
+  // Find existing brand theme for user
+  const existingBrandTheme = await context.entities.BrandTheme.findFirst({
+    where: { userId: context.user.id },
+  });
+
+  // If exists, update it
+  if (existingBrandTheme) {
+    return await context.entities.BrandTheme.update({
+      where: { id: existingBrandTheme.id },
+      data: brandTheme,
+    });
+  }
+
+  // If doesn't exist, create new
+  return await context.entities.BrandTheme.create({
+    data: {
       ...brandTheme,
       userId: context.user.id,
     },
   });
 };
 
-export const getBrandThemeSettings: GetBrandThemeSettings<void, BrandTheme> = async (_args, context) => {
+export const getBrandThemeSettings: GetBrandThemeSettings<void, BrandTheme | null> = async (_args, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
-  return await context.entities.BrandTheme.findFirstOrThrow({ where: { userId: context.user.id } });
+  return await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
 };

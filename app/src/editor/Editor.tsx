@@ -22,18 +22,22 @@ const Editor: FC<EditorProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRecentImagesModalOpen, setIsRecentImagesModalOpen] = useState(false);
   const [templates, setTemplates] = useState<ImageTemplate[]>([]);
-  const { data: imageTemplates } = useQuery(getImageTemplates);
+  const { data: imageTemplates, error: imageTemplatesError } = useQuery(getImageTemplates);
 
   useEffect(() => {
+    console.log('imageTemplates', imageTemplates);
     if (imageTemplates) {
       setTemplates(imageTemplates);
+    }
+    if (imageTemplatesError) {
+      console.error('Error fetching image templates:', imageTemplatesError);
     }
   }, [imageTemplates]);
 
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const imageTemplateId = searchParams.get('imageTemplateId');
 
   // Get the active section from the current path
@@ -45,13 +49,16 @@ const Editor: FC<EditorProps> = ({ children }) => {
   const isGenerateImagePath = currentPath === 'generate-image';
 
   const handleTemplateSelect = (templateId: ImageTemplate['id']) => {
-    navigate(`/generate-image?imageTemplateId=${templateId}`);
+    setSearchParams((params) => {
+      params.set('imageTemplateId', templateId.toString());
+      return params;
+    });
   };
 
   return (
     <div className='flex h-screen bg-gray-100'>
       {/* Left Sidebar */}
-      <div className={`relative bg-white shadow-lg transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0'}`}>
+      <div className={`flex relative bg-white shadow-lg transition-all duration-300 ${!isSidebarOpen && 'w-0'}`}>
         {!isGenerateImagePath && (
           <div className='absolute -right-6 top-4 z-10'>
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
@@ -60,14 +67,11 @@ const Editor: FC<EditorProps> = ({ children }) => {
           </div>
         )}
         {isSidebarOpen && (
-          <div className='h-full overflow-y-auto mt-2'>
-            <SidebarItem title='Create Base Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
-            <SidebarItem title='Edit Image Prompt' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/edit-image')} />
+          <div className='h-full overflow-y-auto m-2'>
+            <SidebarItem title='Create Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
+            <SidebarItem title='Edit Image' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/edit-image')} />
             <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
-            <SidebarItem title='Settings' isActive={activeSidebarItemFromPath === 'settings'} icon={<FaCog className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/settings')} />
             <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
-            <SidebarItem title='Images' isActive={activeSidebarItemFromPath === 'images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/images')} />
-            <SidebarItem title='Text' isActive={activeSidebarItemFromPath === 'text'} icon={<FaFont className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/text')} />
           </div>
         )}
       </div>
@@ -80,31 +84,26 @@ const Editor: FC<EditorProps> = ({ children }) => {
               {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
             </button>
           </div>
-          <div className='p-4'>
-            <h3 className='text-lg font-semibold mb-4'>Choose a Style</h3>
-            <div className='grid grid-cols-2 gap-4'>
-              {/* Existing templates */}
-              {templates.map((template, index) => (
-                <button
-                  key={index}
-                  className='flex items-end justify-center aspect-square w-full hover:drop-shadow-xl hover:border-black/30 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 border border-black/10 relative overflow-hidden rounded-sm'
-                  onClick={() => handleTemplateSelect(template.id)}
-                >
-                  <img 
-                    src={template.exampleImageUrl} 
-                    alt={template.name} 
-                    className='h-[115%] w-[115%] object-cover absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' 
-                  />
-                  {imageTemplateId === template.id && (
-                    <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
-                      <FaCheck className='w-3 h-3 text-white' />
-                    </div>
-                  )}
-                  <div className='relative text-xs text-black bg-white/80 backdrop-blur-sm mb-1 px-1 rounded-sm'>
-                    {template.name}
-                  </div>
-                </button>
-              ))}
+          <div className='h-full overflow-y-auto'>
+            <div className='p-4'>
+              <h3 className='text-lg font-semibold mb-4'>Choose a Style</h3>
+              <div className='grid grid-cols-2 gap-4'>
+                {templates.map((template, index) => (
+                  <button
+                    key={index}
+                    className='flex items-end justify-center aspect-square w-full hover:drop-shadow-xl hover:border-black/30 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 border border-black/10 relative overflow-hidden rounded-sm'
+                    onClick={() => handleTemplateSelect(template.id)}
+                  >
+                    <img src={template.exampleImageUrl} alt={template.name} className='h-[115%] w-[115%] object-cover absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' />
+                    {imageTemplateId === template.id && (
+                      <div className='absolute top-2 right-2 bg-black rounded-full p-1'>
+                        <FaCheck className='w-3 h-3 text-white' />
+                      </div>
+                    )}
+                    <div className='relative text-xs text-black bg-white/80 backdrop-blur-sm mb-1 px-1 rounded-sm'>{template.name}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -116,7 +115,6 @@ const Editor: FC<EditorProps> = ({ children }) => {
           <div className='mx-auto w-full max-w-4xl'>{children}</div>
         </div>
       </div>
-
     </div>
   );
 };

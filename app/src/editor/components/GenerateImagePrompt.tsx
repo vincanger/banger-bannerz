@@ -1,17 +1,20 @@
 import type { FC } from 'react';
+import type { FluxDevAspectRatio } from '../../banner/imageSettings';
+
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
-import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings } from 'wasp/client/operations';
-import { ExampleImageUpload } from './ExampleImageUpload';
+import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, getImageTemplateById } from 'wasp/client/operations';
 import { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 import { ImageGrid } from './ImageGrid';
 import { RecentGeneratedImages } from './RecentGeneratedImages';
 import { Modal } from './Modal';
-import { useSearchParams, useParams } from 'react-router-dom';
-import { FaEdit, FaHandSparkles, FaQuestionCircle } from 'react-icons/fa';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { FaEdit, FaHandSparkles, FaQuestionCircle, FaPalette, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight } from 'react-icons/fa';
 import { cn } from '../../client/cn';
-import { set } from 'zod';
+import { Menu } from '@headlessui/react';
+import { routes } from 'wasp/client/router';
+import { PlatformAspectRatio } from '../../banner/imageSettings';
 
 export type GenerateImageSource = 'topic' | 'prompt';
 
@@ -28,66 +31,68 @@ export const GenerateImagePrompt: FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [numOutputs, setNumOutputs] = useState(3);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<FluxDevAspectRatio>(PlatformAspectRatio['Twitter Landscape']);
+  const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
 
-  const [searchParams] = useSearchParams();
-  const generateBy = searchParams.get('generateBy') as GenerateImageSource;
-  const imageId = searchParams.get('imageId');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const generateImageBy = searchParams.get('generateBy') as GenerateImageSource;
   const imageTemplateId = searchParams.get('imageTemplateId');
+  const imageId = searchParams.get('imageId');
 
   const { data: imageData, isLoading, error } = useQuery(getGeneratedImageDataById, { id: imageId ?? '' }, { enabled: !!imageId });
   const { data: brandTheme } = useQuery(getBrandThemeSettings);
-
-  const selectedIndex = generateBy === 'prompt' ? 1 : 0;
-  const [selectedTab, setSelectedTab] = useState(selectedIndex);
+  const { data: selectedImageTemplate } = useQuery(getImageTemplateById, { id: imageTemplateId ?? '' }, { enabled: !!imageTemplateId });
 
   useEffect(() => {
-    if (generateBy === 'prompt' && imageId) {
+    if (generateImageBy === 'prompt' && imageId) {
       if (imageData && !isLoading) {
         setUserPrompt(imageData.userPrompt || '');
         setIsModalOpen(false);
       }
-    } else {
-      setUserPrompt('');
-    }
-    setSelectedTab(generateBy === 'prompt' ? 1 : 0);
-  }, [generateBy, imageId, imageData, isLoading]);
+    } 
+  }, [generateImageBy, imageId, imageData, isLoading]);
 
   useEffect(() => {
     if (brandTheme) {
-      setIsUsingBrandSettings(brandTheme.preferredStyles.length > 0 || brandTheme.mood.length > 0 || brandTheme.lighting.length > 0);
+      setIsUsingBrandSettings(!!brandTheme.imageTemplateId || brandTheme.mood.length > 0);
       setIsUsingBrandColors(brandTheme.colorScheme.length > 0);
     }
   }, [brandTheme]);
 
+  const handleTabChange = (index: number) => {
+    setSearchParams((params) => {
+      params.set('generateBy', index === 1 ? 'prompt' : 'topic');
+      return params;
+    });
+  };
+
   const handleGenerateImageFromTitle = async () => {
     try {
       setIsGeneratingImages(true);
-      if (!imageTemplateId) {
+      if (!imageTemplateId || !selectedImageTemplate?.id) {
         throw new Error('Image template is required');
       }
 
-      const generatedPrompts = await generatePromptFromTitle({
+      const { promptArray } = await generatePromptFromTitle({
         title: postTopic,
         isUsingBrandSettings,
         isUsingBrandColors,
-        imageTemplateId,
+        imageTemplateId: selectedImageTemplate.id,
+        numOutputs,
       });
 
-      let combinedPrompts: string[] = [];
-
-      combinedPrompts = generatedPrompts.promptData.map((data) => data.prompt);
-      const generatedBannerArrays = await Promise.all(
-        combinedPrompts.map((userPrompt) => {
-          return generateBannerFromTemplate({
-            imageTemplateId,
-            userPrompt,
-            numOutputs: 1,
-            postTopic,
-          });
-        })
-      );
-
-      setGeneratedImages(generatedBannerArrays.flat());
+      const allGeneratedImages = [];
+      for (const prompt of promptArray) {
+        const generatedImage = await generateBannerFromTemplate({
+          imageTemplateId: selectedImageTemplate.id,
+          userPrompt: prompt.prompt,
+          numOutputs: 1,
+          postTopic,
+          aspectRatio: selectedAspectRatio,
+        });
+        allGeneratedImages.push(...generatedImage);
+        setGeneratedImages([...allGeneratedImages]); // Update state after each image
+      }
     } catch (error) {
       console.error('Failed to generate prompt from title:', error);
     } finally {
@@ -97,17 +102,23 @@ export const GenerateImagePrompt: FC = () => {
 
   const handleGenerateImageFromPrompt = async () => {
     console.log('userPrompt: ', userPrompt);
-    if (!imageTemplateId) {
+    if (!imageTemplateId || !selectedImageTemplate?.id) {
       throw new Error('Image template ID is required');
     }
     try {
       setIsGeneratingImages(true);
       const generatedImages = await generateBannerFromTemplate({
         userPrompt,
-        imageTemplateId,
+        imageTemplateId: selectedImageTemplate.id,
         numOutputs,
+        aspectRatio: selectedAspectRatio,
       });
       setGeneratedImages(generatedImages);
+      setSearchParams((params) => {
+        params.set('imageId', generatedImages[0].id);
+        return params;
+      });
+      setUserPrompt(generatedImages[0].userPrompt);
     } catch (error) {
       console.error('Failed to generate prompts:', error);
     } finally {
@@ -117,7 +128,7 @@ export const GenerateImagePrompt: FC = () => {
 
   return (
     <Editor>
-      <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
+      <Tab.Group selectedIndex={generateImageBy === 'prompt' ? 1 : 0} onChange={handleTabChange}>
         <div className='rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
           <Tab.List className='flex rounded-t-lg'>
             <Tab
@@ -150,11 +161,12 @@ export const GenerateImagePrompt: FC = () => {
                 {/* Instruction Tooltip */}
                 <div className='flex justify-end'>
                   <div className='relative group'>
-                    <FaQuestionCircle className='relative group h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
-                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg'>
-                      <p className='text-sm text-gray-600 dark:text-gray-300'>
-                        Enter the title or topic of your accompanying post, and we'll generate the prompts for your AI images so that they match your content. Enable brand settings to maintain your visual identity, or
-                        even upload an example image to guide the style.
+                    <FaQuestionCircle className='h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
+                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-black/90 rounded-lg shadow-lg'>
+                      <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0'></div>
+                      <p className='text-sm text-white'>
+                        Enter the title or topic of your accompanying post, and we'll generate the prompts for your AI images so that they match your content. Enable brand settings to maintain your visual identity and
+                        guide the style.
                       </p>
                     </div>
                   </div>
@@ -172,44 +184,26 @@ export const GenerateImagePrompt: FC = () => {
                   />
                 </div>
 
-                {/* Brand Settings Checkboxes */}
-                <div className='space-y-2'>
-                  <div className='flex items-center'>
-                    <input
-                      type='checkbox'
-                      id='brand-settings'
-                      checked={isUsingBrandSettings}
-                      onChange={(e) => setIsUsingBrandSettings(e.target.checked)}
-                      className='rounded border-gray-300 text-yellow-500 focus:ring-yellow-500'
-                    />
-                    <label htmlFor='brand-settings' className='ml-2 text-sm text-gray-700 dark:text-gray-200'>
-                      Use brand image settings
-                    </label>
-                  </div>
-                  <div className='flex items-center'>
-                    <input
-                      type='checkbox'
-                      id='brand-colors'
-                      checked={isUsingBrandColors}
-                      onChange={(e) => setIsUsingBrandColors(e.target.checked)}
-                      className='rounded border-gray-300 text-yellow-500 focus:ring-yellow-500'
-                    />
-                    <label htmlFor='brand-colors' className='ml-2 text-sm text-gray-700 dark:text-gray-200'>
-                      Use brand color scheme
-                    </label>
-                  </div>
-                </div>
+                {/* Brand Settings Buttons with Dropdowns */}
+                <SettingsButtons
+                  brandTheme={brandTheme}
+                  isUsingBrandSettings={isUsingBrandSettings}
+                  isUsingBrandColors={isUsingBrandColors}
+                  setIsUsingBrandSettings={setIsUsingBrandSettings}
+                  setIsUsingBrandColors={setIsUsingBrandColors}
+                  selectedPlatform={selectedPlatform}
+                  setSelectedAspectRatio={setSelectedAspectRatio}
+                  setSelectedPlatform={setSelectedPlatform}
+                  numOutputs={numOutputs}
+                  setNumOutputs={setNumOutputs}
+                  selectedImageTemplate={selectedImageTemplate}
+                />
 
                 {/* Template Use Section */}
                 <div></div>
 
                 {/* Generate Button */}
-                <LoadingButton
-                  onClick={handleGenerateImageFromTitle}
-                  disabled={!postTopic}
-                  isLoading={isGeneratingImages}
-                  text="Generate Images"
-                />
+                <LoadingButton onClick={handleGenerateImageFromTitle} disabled={!postTopic || !imageTemplateId} isLoading={isGeneratingImages} text='Generate Images' />
               </div>
             </Tab.Panel>
 
@@ -219,10 +213,9 @@ export const GenerateImagePrompt: FC = () => {
                 <div className='flex justify-end'>
                   <div className='relative group'>
                     <FaQuestionCircle className='h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
-                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg'>
-                      <p className='text-sm text-gray-600 dark:text-gray-300'>
-                        Have a specific vision in mind? Write your own custom prompt or choose a prompt from one of your recently generated images to create exactly what you're looking for.
-                      </p>
+                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-black/90 rounded-lg shadow-lg'>
+                      <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0'></div>
+                      <p className='text-sm text-white'>Write your own custom prompt or choose a prompt from one of your recently generated images to create exactly what you're looking for.</p>
                     </div>
                   </div>
                 </div>
@@ -249,26 +242,23 @@ export const GenerateImagePrompt: FC = () => {
                   />
                 </div>
 
-                {/* Number of Outputs */}
-                <div className='flex items-center space-x-2'>
-                  <label htmlFor='num-outputs' className='text-sm text-gray-700 dark:text-gray-200'>
-                    Number of Images to Generate
-                  </label>
-                  <input
-                    type='number'
-                    className='w-16 rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-                    value={numOutputs}
-                    onChange={(e) => setNumOutputs(parseInt(e.target.value))}
-                  />
-                </div>
+                {/* Brand Settings Buttons with Dropdowns */}
+                <SettingsButtons
+                  brandTheme={brandTheme}
+                  isUsingBrandSettings={isUsingBrandSettings}
+                  isUsingBrandColors={isUsingBrandColors}
+                  setIsUsingBrandSettings={setIsUsingBrandSettings}
+                  setIsUsingBrandColors={setIsUsingBrandColors}
+                  selectedPlatform={selectedPlatform}
+                  setSelectedAspectRatio={setSelectedAspectRatio}
+                  setSelectedPlatform={setSelectedPlatform}
+                  numOutputs={numOutputs}
+                  setNumOutputs={setNumOutputs}
+                  selectedImageTemplate={selectedImageTemplate}
+                />
 
                 {/* Generate Button */}
-                <LoadingButton
-                  onClick={handleGenerateImageFromPrompt}
-                  disabled={!userPrompt}
-                  isLoading={isGeneratingImages}
-                  text="Generate Images"
-                />
+                <LoadingButton onClick={handleGenerateImageFromPrompt} disabled={!userPrompt} isLoading={isGeneratingImages} text='Generate Images' />
               </div>
             </Tab.Panel>
           </Tab.Panels>
@@ -314,3 +304,232 @@ export const LoadingButton: FC<LoadingButtonProps> = ({ onClick, disabled, isLoa
     </button>
   );
 };
+
+interface SettingsButtonProps {
+  brandTheme?: any;
+  isUsingBrandSettings: boolean;
+  isUsingBrandColors: boolean;
+  setIsUsingBrandSettings: (value: boolean) => void;
+  setIsUsingBrandColors: (value: boolean) => void;
+}
+
+const BrandIdentityButton: FC<SettingsButtonProps> = ({ brandTheme, isUsingBrandSettings, isUsingBrandColors, setIsUsingBrandSettings, setIsUsingBrandColors }) => {
+  const navigate = useNavigate();
+  return (
+    <div className='relative'>
+      <Menu>
+        {({ open }) => (
+          <div className='relative'>
+            <Menu.Button
+              className={cn(
+                'group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700',
+                (isUsingBrandSettings || isUsingBrandColors) && 'text-yellow-500 border-yellow-500'
+              )}
+            >
+              <FaRainbow className='h-4 w-4' />
+              <span className='text-sm'>Brand Identity</span>
+              {!open && (
+                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
+                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
+                  <p className='text-sm text-white'>Set and use the preferred defaults for your brand identity</p>
+                </div>
+              )}
+            </Menu.Button>
+            <Menu.Items className='absolute z-20 mt-2 w-56 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
+              <div className='p-1'>
+                <Menu.Item>
+                  {({ active }) => (
+                    <button
+                      className={cn('flex w-full items-center px-3 py-2 text-sm rounded-md', active && 'bg-gray-100 dark:bg-gray-700', !brandTheme && 'opacity-50 cursor-not-allowed')}
+                      onClick={() => brandTheme && setIsUsingBrandSettings(!isUsingBrandSettings)}
+                      disabled={!brandTheme}
+                    >
+                      <span>Use Brand Settings</span>
+                      {isUsingBrandSettings && brandTheme && <FaCheck className='ml-2 h-4 w-4 text-yellow-500' />}
+                    </button>
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active }) => (
+                    <button
+                      className={cn('flex w-full items-center px-3 py-2 text-sm rounded-md', active && 'bg-gray-100 dark:bg-gray-700', !brandTheme && 'opacity-50 cursor-not-allowed')}
+                      onClick={() => brandTheme && setIsUsingBrandColors(!isUsingBrandColors)}
+                      disabled={!brandTheme}
+                    >
+                      <span>Use Brand Colors</span>
+                      {isUsingBrandColors && brandTheme && <FaCheck className='ml-2 h-4 w-4 text-yellow-500' />}
+                    </button>
+                  )}
+                </Menu.Item>
+                <Menu.Item>
+                  {({ active }) => (
+                    <button
+                      className={cn('flex w-full items-center px-3 py-2 text-sm rounded-md border-t border-gray-200 dark:border-gray-700', active && 'bg-gray-100 dark:bg-gray-700')}
+                      onClick={() => navigate(routes.BrandRoute.to)}
+                    >
+                      <span>Set Brand Identity</span>
+                      <FaArrowRight className='ml-2 h-4 w-4' />
+                    </button>
+                  )}
+                </Menu.Item>
+              </div>
+            </Menu.Items>
+          </div>
+        )}
+      </Menu>
+    </div>
+  );
+};
+
+interface AspectRatioButtonProps {
+  selectedPlatform: string;
+  setSelectedAspectRatio: (ratio: FluxDevAspectRatio) => void;
+  setSelectedPlatform: (platform: string) => void;
+}
+
+export const AspectRatioButton: FC<AspectRatioButtonProps> = ({ selectedPlatform, setSelectedAspectRatio, setSelectedPlatform }) => {
+  return (
+    <div className='relative'>
+      <Menu>
+        {({ open }) => (
+          <div className='relative'>
+            <Menu.Button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'>
+              <FaExpand className='h-4 w-4' />
+              <span className='text-sm'>Aspect Ratio</span>
+              {!open && (
+                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-52 p-3 bg-black/90 rounded-lg shadow-lg'>
+                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
+                  <p className='text-sm text-white'>Choose which platform you're creating this banner for. Note: you can export the final image for multiple blog formats.</p>
+                </div>
+              )}
+            </Menu.Button>
+            <Menu.Items className='absolute z-20 mt-2 w-56 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
+              <div className='p-1'>
+                {Object.entries(PlatformAspectRatio).map(([label, ratio]) => (
+                  <Menu.Item key={label}>
+                    {({ active }) => (
+                      <button
+                        className={cn('flex w-full justify-between items-center px-3 py-2 text-sm rounded-md', active && 'bg-gray-100 dark:bg-gray-700')}
+                        onClick={() => {
+                          setSelectedAspectRatio(ratio);
+                          setSelectedPlatform(label);
+                        }}
+                      >
+                        <span>{label}</span>
+                        {selectedPlatform === label && <FaCheck className='h-4 w-4 text-yellow-500' />}
+                      </button>
+                    )}
+                  </Menu.Item>
+                ))}
+              </div>
+            </Menu.Items>
+          </div>
+        )}
+      </Menu>
+    </div>
+  );
+};
+
+interface OutputsButtonProps {
+  numOutputs: number;
+  setNumOutputs: (num: number) => void;
+}
+
+export const OutputsButton: FC<OutputsButtonProps> = ({ numOutputs, setNumOutputs }) => {
+  return (
+    <div className='relative'>
+      <Menu>
+        {({ open }) => (
+          <div className='relative'>
+            <Menu.Button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'>
+              <FaImages className='h-4 w-4' />
+              <span className='text-sm'>Outputs: {numOutputs}</span>
+              {!open && (
+                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
+                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
+                  <p className='text-sm text-white'>Choose how many image variations to generate at once</p>
+                </div>
+              )}
+            </Menu.Button>
+            <Menu.Items className='absolute z-20 mt-2 w-40 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
+              <div className='p-1'>
+                {[1, 2, 3, 4].map((number) => (
+                  <Menu.Item key={number}>
+                    {({ active }) => (
+                      <button className={cn('flex w-full justify-between items-center px-3 py-2 text-sm rounded-md', active && 'bg-gray-100 dark:bg-gray-700')} onClick={() => setNumOutputs(number)}>
+                        <span>
+                          {number} {number === 1 ? 'Image' : 'Images'}
+                        </span>
+                        {numOutputs === number && <FaCheck className='h-4 w-4 text-yellow-500' />}
+                      </button>
+                    )}
+                  </Menu.Item>
+                ))}
+              </div>
+            </Menu.Items>
+          </div>
+        )}
+      </Menu>
+    </div>
+  );
+};
+
+interface StyleButtonProps {
+  selectedImageTemplate: any;
+}
+
+export const StyleButton: FC<StyleButtonProps> = ({ selectedImageTemplate }) => (
+  <div className='relative'>
+    <button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500'>
+      <FaPalette className='h-4 w-4' />
+      <span className='text-sm'>Style: {selectedImageTemplate?.name || 'None'}</span>
+      <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
+        <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
+        <p className='text-sm text-white'>{selectedImageTemplate ? "This is the image style you'd like your banner to have" : 'Please choose an image style on the left sidebar'}</p>
+      </div>
+    </button>
+  </div>
+);
+
+interface SettingsButtonsProps {
+  brandTheme?: any;
+  isUsingBrandSettings: boolean;
+  isUsingBrandColors: boolean;
+  setIsUsingBrandSettings: (value: boolean) => void;
+  setIsUsingBrandColors: (value: boolean) => void;
+  selectedPlatform: string;
+  setSelectedAspectRatio: (ratio: FluxDevAspectRatio) => void;
+  setSelectedPlatform: (platform: string) => void;
+  numOutputs: number;
+  setNumOutputs: (num: number) => void;
+  selectedImageTemplate: any;
+}
+
+export const SettingsButtons: FC<SettingsButtonsProps> = ({
+  brandTheme,
+  isUsingBrandSettings,
+  isUsingBrandColors,
+  setIsUsingBrandSettings,
+  setIsUsingBrandColors,
+  selectedPlatform,
+  setSelectedAspectRatio,
+  setSelectedPlatform,
+  numOutputs,
+  setNumOutputs,
+  selectedImageTemplate,
+}) => (
+  <div className='flex items-center justify-between gap-2'>
+    <div className='flex items-center gap-2'>
+      <BrandIdentityButton
+        brandTheme={brandTheme}
+        isUsingBrandSettings={isUsingBrandSettings}
+        isUsingBrandColors={isUsingBrandColors}
+        setIsUsingBrandSettings={setIsUsingBrandSettings}
+        setIsUsingBrandColors={setIsUsingBrandColors}
+      />
+      <AspectRatioButton selectedPlatform={selectedPlatform} setSelectedAspectRatio={setSelectedAspectRatio} setSelectedPlatform={setSelectedPlatform} />
+      <OutputsButton numOutputs={numOutputs} setNumOutputs={setNumOutputs} />
+    </div>
+    <StyleButton selectedImageTemplate={selectedImageTemplate} />
+  </div>
+);

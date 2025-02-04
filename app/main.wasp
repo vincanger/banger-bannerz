@@ -1,4 +1,4 @@
-app OpenSaaS {
+app BangerBanners {
   wasp: {
     version: "^0.15.0"
   },
@@ -68,7 +68,7 @@ app OpenSaaS {
     },
     onAfterSignup: import { onAfterSignup } from "@src/auth/hooks",
     onAuthFailedRedirectTo: "/login",
-    onAuthSucceededRedirectTo: "/demo-app",
+    onAuthSucceededRedirectTo: "/generate-image",
   },
 
   db: {
@@ -259,33 +259,6 @@ route EditImageRoute { path: "/edit-image/:id", to: EditImagePage }
 page EditImagePage {
   component: import { EditImage } from "@src/editor/components/EditImage"
 }
-
-//#region Brand Theme
-action upsertBrandTheme {
-  fn: import { upsertBrandTheme } from "@src/editor/components/brandThemeOperations",
-  entities: [User, BrandTheme]
-}
-
-action createBrandTheme {
-  fn: import { createBrandTheme } from "@src/editor/components/brandThemeOperations",
-  entities: [User, BrandTheme]
-}
-
-action updateBrandTheme {
-  fn: import { updateBrandTheme } from "@src/editor/components/brandThemeOperations",
-  entities: [User, BrandTheme]
-}
-
-query getBrandTheme {
-  fn: import { getBrandTheme } from "@src/editor/components/brandThemeOperations",
-  entities: [User, BrandTheme]
-}
-
-action deleteBrandTheme {
-  fn: import { deleteBrandTheme } from "@src/editor/components/brandThemeOperations",
-  entities: [User, BrandTheme]
-}
-//#endregion
 
 //#region Demo AI App
 route DemoAppRoute { path: "/demo-app", to: DemoAppPage }

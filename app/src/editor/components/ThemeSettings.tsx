@@ -1,64 +1,80 @@
-import  { useEffect, type FC } from 'react';
+import type { ImageTemplate } from 'wasp/entities';
+import type { FC } from 'react';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import CheckboxGroup from './CheckboxGroup';
-import { ImageStyle, ImageMood, ImageLighting } from '../../banner/imageSettings';
-import { useQuery, useAction, getBrandTheme, saveBrandThemeSettings } from 'wasp/client/operations';
+import { ImageMood } from '../../banner/imageSettings';
+import { useQuery, useAction, getBrandThemeSettings, saveBrandThemeSettings, getImageTemplates } from 'wasp/client/operations';
 import { BrandTheme } from 'wasp/entities';
-
 
 interface ThemeSettingsProps {
   onSubmit?: (data: Partial<BrandTheme>) => void;
 }
 
 export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
-  const { register, handleSubmit, watch, setValue, formState: { defaultValues, touchedFields } } = useForm<Partial<BrandTheme>>();
-  
-  const { data: brandTheme, error: brandThemeError, isLoading: isBrandThemeLoading } = useQuery(getBrandTheme);
-  
-  const saveBrandThemeSettingsOptimistically = useAction(saveBrandThemeSettings, {
-    optimisticUpdates: [{
-      getQuerySpecifier: () => [getBrandTheme],
-      updateQuery: (newThemeData, oldTheme) => ({
-        ...oldTheme,
-        ...newThemeData
-      })
-    }]
-  });
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { touchedFields },
+  } = useForm<Partial<BrandTheme>>();
 
-  useEffect(() => {
-    console.log('brandTheme', brandTheme);
-  }, [brandTheme]);
+  const { data: brandTheme, error: brandThemeError, isLoading: isBrandThemeLoading } = useQuery(getBrandThemeSettings);
+  const { data: imageTemplates, error: imageTemplatesError, isLoading: isImageTemplatesLoading } = useQuery(getImageTemplates);
+
+  const saveBrandThemeSettingsOptimistically = useAction(saveBrandThemeSettings, {
+    optimisticUpdates: [
+      {
+        getQuerySpecifier: () => [getBrandThemeSettings],
+        updateQuery: (newThemeData, oldTheme) => ({
+          ...oldTheme,
+          ...newThemeData,
+        }),
+      },
+    ],
+  });
 
   // Initialize form with brandTheme data when it loads
   useEffect(() => {
     if (brandTheme && !touchedFields) {
-      // Only set values if they're not already set (initial load)
-      setValue('preferredStyles', brandTheme.preferredStyles || []);
+      setValue('imageTemplateId', brandTheme.imageTemplateId || '');
       setValue('mood', brandTheme.mood || []);
-      setValue('lighting', brandTheme.lighting || []);
     }
   }, [brandTheme, setValue, touchedFields]);
 
   // Handle individual checkbox changes
   const handleCheckboxChange = (name: keyof BrandTheme, value: string, isChecked: boolean) => {
-    console.log('name', name);
     try {
-      const currentValues = (watch(name) as string[]) || [];
-      const newValues = isChecked 
-        ? [...currentValues, value]
-        : currentValues.filter((v: string) => v !== value);
-      
+      const currentValue = watch(name);
+      let currentValues = Array.isArray(currentValue) 
+        ? currentValue 
+        : (currentValue ? [String(currentValue)] : []);
+
+      // For single selection (maxSelections === 1), replace the current value
+      if (name === 'imageTemplateId' && isChecked) {
+        currentValues = [value];
+      } else if (name === 'imageTemplateId' && !isChecked) {
+        currentValues = [];
+      } else {
+        // For multiple selections
+        currentValues = isChecked 
+          ? [...currentValues, value] 
+          : currentValues.filter((v) => v !== value);
+      }
+
       saveBrandThemeSettingsOptimistically({
         brandTheme: {
           id: brandTheme?.id,
-          [name]: newValues
-        }
+          [name]: name === 'imageTemplateId' ? (currentValues[0] || null) : currentValues,
+        },
       });
-      
+
+      // Update form value immediately
+      setValue(name, name === 'imageTemplateId' ? (currentValues[0] || null) : currentValues);
     } catch (error) {
       console.error(`Failed to update ${name}:`, error);
-      // Revert the form state on error
       if (brandTheme) {
         setValue(name, brandTheme[name]);
       }
@@ -66,37 +82,29 @@ export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
   };
 
   return (
-    <form className="p-4">
-      <h2 className="my-4 text-lg font-semibold text-gray-900">Preferred Image Settings</h2>
-      
+    <form className='p-4'>
+      <h2 className='my-4 text-lg font-semibold text-gray-900'>Preferred Image Settings</h2>
+
       <CheckboxGroup
-        label="Image Styles"
-        name="preferredStyles"
-        options={Object.values(ImageStyle)}
-        description="Select up to 3 preferred artistic styles"
-        selectedValues={brandTheme?.preferredStyles || []}
+        label='Image Style'
+        name='imageTemplateId'
+        options={imageTemplates?.map((template) => template.name) || []}
+        description='Select your preferred image style'
+        selectedValues={brandTheme?.imageTemplateId ? [brandTheme.imageTemplateId] : null}
         register={register}
         onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
+        maxSelections={1} // Limit to single selection
       />
 
       <CheckboxGroup
-        label="Image Moods"
-        name="mood"
+        label='Image Moods'
+        name='mood'
         options={Object.values(ImageMood)}
-        description="Select up to 3 emotional tones"
+        description='Select up to 3 emotional tones'
         selectedValues={brandTheme?.mood || []}
         register={register}
         onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
-      />
-
-      <CheckboxGroup
-        label="Image Lighting"
-        name="lighting"
-        options={Object.values(ImageLighting)}
-        description="Select up to 3 lighting conditions"
-        selectedValues={brandTheme?.lighting || []}
-        register={register}
-        onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
+        maxSelections={3}
       />
     </form>
   );

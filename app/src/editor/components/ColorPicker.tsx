@@ -2,7 +2,7 @@ import type { FC } from 'react';
 
 import { useEffect, useState, useCallback } from 'react';
 import { HexColorPicker } from 'react-colorful';
-import { getBrandTheme, saveBrandThemeSettings } from 'wasp/client/operations';
+import { getBrandThemeSettings, saveBrandThemeSettings } from 'wasp/client/operations';
 import { useQuery } from 'wasp/client/operations';
 import debounce from 'lodash.debounce';
 
@@ -11,7 +11,7 @@ export const ColorPicker: FC = () => {
   const [colors, setColors] = useState<string[]>([]);
   const [activeColorIndex, setActiveColorIndex] = useState<number | undefined>(undefined);
 
-  const { data: brandTheme, isLoading: isBrandThemeLoading } = useQuery(getBrandTheme);
+  const { data: brandTheme, isLoading: isBrandThemeLoading } = useQuery(getBrandThemeSettings);
 
   useEffect(() => {
     if (isBrandThemeLoading) return;
@@ -59,11 +59,7 @@ export const ColorPicker: FC = () => {
     setActiveColorIndex(newColors.length > 0 ? newColors.length - 1 : undefined);
   };
 
-  return isBrandThemeLoading ? (
-    <div className='flex justify-center items-center min-h-[200px]'>
-      <div className='animate-spin rounded-full h-8 w-8 border-2 border-yellow-500 border-t-transparent'></div>
-    </div>
-  ) : (
+  return (
     <div className='p-4'>
       <h2 className='mb-4 text-lg font-semibold text-gray-900'>Brand Color Scheme</h2>
       <div className='space-y-4'>

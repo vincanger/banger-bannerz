@@ -40,9 +40,8 @@ model BrandTheme {
   userId                    String
 
   colorScheme               String[]
-  preferredStyles           String[]
   mood                      String[]
-  lighting                  String[]
+  imageTemplateId           String?
 }
 
 model GeneratedImageData {
