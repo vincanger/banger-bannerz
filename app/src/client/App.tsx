@@ -56,7 +56,7 @@ export default function App() {
           <Outlet />
         ) : (
           <>
-            {shouldDisplayAppNavBar && <NavBar navigationItems={navigationItems} />}
+            {/* {shouldDisplayAppNavBar && <NavBar navigationItems={navigationItems} />} */}
             <div>
               <Outlet />
             </div>
