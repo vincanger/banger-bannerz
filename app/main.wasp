@@ -196,8 +196,6 @@ query getBrandThemeSettings {
   fn: import { getBrandThemeSettings } from "@src/banner/operations",
   entities: [User, BrandTheme]
 }
-
-
 //#endregion
 
 //#region Banner
