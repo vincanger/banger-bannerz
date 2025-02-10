@@ -59,21 +59,12 @@ const Editor: FC<EditorProps> = ({ children }) => {
     <div className='flex h-screen bg-gray-100'>
       {/* Left Sidebar */}
       <div className={`flex relative bg-white shadow-lg transition-all duration-300 ${!isSidebarOpen && 'w-0'}`}>
-        {!isGenerateImagePath && (
-          <div className='absolute -right-6 top-4 z-10'>
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className='flex h-12 w-6 items-center justify-center rounded-r bg-white shadow-md'>
-              {isSidebarOpen ? <FaChevronLeft className='h-5 w-5 text-gray-500' /> : <FaChevronRight className='h-5 w-5 text-gray-500' />}
-            </button>
-          </div>
-        )}
-        {isSidebarOpen && (
-          <div className='h-full overflow-y-auto m-2'>
-            <SidebarItem title='Create Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
-            <SidebarItem title='Edit Image' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/edit-image')} />
-            <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
-            <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
-          </div>
-        )}
+        <div className='h-full overflow-y-auto m-2'>
+          <SidebarItem title='Create Image' isActive={activeSidebarItemFromPath === 'generate-image'} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/generate-image')} />
+          <SidebarItem title='Create OG Image' isActive={activeSidebarItemFromPath === 'edit-image'} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate(`/image-overlay/`)} />
+          <SidebarItem title='Recent Images' isActive={activeSidebarItemFromPath === 'recent-images'} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/recent-images')} />
+          <SidebarItem title='Brand' isActive={activeSidebarItemFromPath === 'brand'} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate('/brand')} />
+        </div>
       </div>
 
       {/* Template Images Sidebar - only shown on generate-image path */}
@@ -110,10 +101,10 @@ const Editor: FC<EditorProps> = ({ children }) => {
       )}
 
       {/* Main Content */}
-      <div className='flex flex-1 flex-col'>
-        <div className='flex-1 overflow-auto p-8'>
-          <div className='mx-auto w-full max-w-4xl'>{children}</div>
-        </div>
+      <div className='w-full'>
+
+          <div >{children}</div>
+
       </div>
     </div>
   );

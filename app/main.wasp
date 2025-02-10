@@ -163,7 +163,8 @@ page EditorPage {
   component: import Editor from "@src/editor/Editor"
 }
 
-route ImageOverlayRoute { path: "/image-overlay/:id", to: ImageOverlayPage }
+route ImageOverlayRoute { path: "/image-overlay", to: ImageOverlayPage }
+route ImageOverlayRouteWithId { path: "/image-overlay/:id", to: ImageOverlayPage }
 page ImageOverlayPage {
   component: import { ImageOverlay } from "@src/editor/components/ImageOverlay.tsx"
 }

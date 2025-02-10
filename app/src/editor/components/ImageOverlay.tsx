@@ -1,22 +1,17 @@
-import { FC, useEffect, useRef, useState, memo, act } from 'react';
+import type { FC, ChangeEvent, RefObject } from 'react';
+import type { BrandTheme } from 'wasp/entities';
+
+import * as fabric from 'fabric';
+import { useEffect, useRef, useState, useMemo, memo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from 'wasp/client/operations';
-import { getGeneratedImageDataById, getImageProxy, getBrandThemeSettings } from 'wasp/client/operations';
-import type { GeneratedImageData, BrandTheme } from 'wasp/entities';
+import { getGeneratedImageDataById, getImageProxy, getBrandThemeSettings, getRecentGeneratedImageData } from 'wasp/client/operations';
 import { HexColorPicker } from 'react-colorful';
-import * as fabric from 'fabric';
-import { FabricImage, FabricObject } from 'fabric';
-import { FaPlus, FaMinus, FaChevronDown, FaChevronRight } from 'react-icons/fa';
+import { FabricImage } from 'fabric';
 import debounce from 'lodash/debounce';
 import { cn } from '../../client/cn';
-
-interface ColorButtonProps {
-  color: string;
-  label: string;
-  onChange: (color: string) => void;
-  isPickerOpen: boolean;
-  setPickerOpen: (open: boolean) => void;
-}
+import Editor from '../Editor';
+import { ImageGrid } from './ImageGrid';
 
 const getDarkestColor = (colors: string[]): string => {
   if (!colors || colors.length === 0) return '#000000D9';
@@ -55,17 +50,18 @@ export const ImageOverlay: FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
+  const exportControlsRef = useRef<HTMLDivElement>(null);
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [selectedObject, setSelectedObject] = useState<SelectedObject>({ type: null, object: null });
-  const [selectedFillColor, setSelectedFillColor] = useState('');
+  const isMouseDownRef = useRef(false);
 
   const { data: imageData, isLoading: imageDataLoading, error: imageDataError } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id });
-
+  const { data: recentImages, isLoading: recentImagesLoading, error: recentImagesError } = useQuery(getRecentGeneratedImageData);
   const { data: proxiedImageUrl, isLoading: proxyLoading, error: proxyError } = useQuery(getImageProxy, { url: imageData?.url || '' }, { enabled: !!imageData?.url });
 
-  const { data: brandThemeSettings, isLoading: brandThemeSettingsLoading, error: brandThemeSettingsError } = 
-    useQuery(getBrandThemeSettings);
+  const { data: brandThemeSettings, isLoading: brandThemeSettingsLoading, error: brandThemeSettingsError } = useQuery(getBrandThemeSettings);
+  const { data: proxiedLogoUrl, isLoading: proxyLogoLoading, error: proxyLogoError } = useQuery(getImageProxy, { url: brandThemeSettings?.logoUrl || '' }, { enabled: !!brandThemeSettings?.logoUrl });
 
   const [darkOverlayColor, setDarkOverlayColor] = useState('#000000D9');
   const [whiteOverlayColor, setWhiteOverlayColor] = useState('#FFFFFF');
@@ -99,6 +95,22 @@ export const ImageOverlay: FC = () => {
   };
 
   useEffect(() => {
+    const handleMouseDown = () => {
+      isMouseDownRef.current = true;
+    };
+    const handleMouseUp = () => {
+      isMouseDownRef.current = false;
+    };
+    // Use pointer events if you want to support touch as well
+    document.addEventListener('pointerdown', handleMouseDown);
+    document.addEventListener('pointerup', handleMouseUp);
+    return () => {
+      document.removeEventListener('pointerdown', handleMouseDown);
+      document.removeEventListener('pointerup', handleMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleKeyboardShortcuts = (e: KeyboardEvent) => {
       // Check if Command (Mac) or Control (Windows/Linux) is pressed
       if (e.metaKey || e.ctrlKey) {
@@ -130,7 +142,7 @@ export const ImageOverlay: FC = () => {
       backgroundColor: 'white',
       preserveObjectStacking: true,
       devicePixelRatio: 1,
-      selection: true
+      selection: true,
     });
 
     // Add selection and event listeners
@@ -174,7 +186,7 @@ export const ImageOverlay: FC = () => {
     let isDragging = false;
 
     const originalFindTarget = fabricCanvas.findTarget.bind(fabricCanvas);
-    fabricCanvas.findTarget = function(e: fabric.TPointerEvent) {
+    fabricCanvas.findTarget = function (e: fabric.TPointerEvent) {
       if (isDragging) {
         return undefined;
       }
@@ -209,10 +221,10 @@ export const ImageOverlay: FC = () => {
       fabricCanvas.add(fabricImageFromUrl);
 
       const darkOverlay = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: overlayWidth,
-        height: TARGET_HEIGHT,
+        left: -1,
+        top: -1,
+        width: overlayWidth + 2,
+        height: TARGET_HEIGHT + 2,
         fill: darkOverlayColor,
         selectable: true,
         hasControls: true,
@@ -294,17 +306,17 @@ export const ImageOverlay: FC = () => {
       const logoY = lineY + 40;
       const desiredLogoSize = 44;
 
-      if (brandThemeSettings?.logoUrl) {
+      if (brandThemeSettings?.logoUrl && !proxyLogoLoading && proxiedLogoUrl) {
         console.log('Brand theme settings:', brandThemeSettings);
         const imgElement = new Image();
-        imgElement.src = brandThemeSettings.logoUrl;
+        imgElement.src = proxiedLogoUrl;
         imgElement.onload = () => {
           const fabricImage = new fabric.Image(imgElement);
           // scale the image down to the desired size
           const scale = desiredLogoSize / Math.max(fabricImage.width!, fabricImage.height!);
           fabricImage.scaleX = scale;
           fabricImage.scaleY = scale;
-          
+
           const clipPath = new fabric.Circle({
             radius: imgElement.width / 2,
             originX: 'center',
@@ -423,22 +435,20 @@ export const ImageOverlay: FC = () => {
     if (!target) {
       console.log('No target');
       setSelectedObject({ type: null, object: null });
-      setSelectedFillColor('');
       return;
     }
 
     const objectType = getObjectType(target, canvas);
     console.log('Object type:', objectType);
     setSelectedObject({ type: objectType, object: target });
-    setSelectedFillColor(target.get('fill') || '');
+
     target.lockMovementX = false;
     target.lockMovementY = false;
   };
 
   function handleObjectSelection(this: fabric.Canvas, e: { selected?: CustomFabricObject[] }) {
     console.log('Handle object selection');
-    console.log('Canvas:', this);
-    
+
     // Prioritize the canvas' active object (this supports group selections)
     const activeObject = this.getActiveObject();
     console.log('Active object:', activeObject);
@@ -452,17 +462,23 @@ export const ImageOverlay: FC = () => {
   }
 
   // Add function to handle color changes
-  const debouncedHandleColorChange = debounce((color: string) => {
-    if (selectedObject.object && canvas) {
-      // Handle edge cases for hex colors
-      const validHexColor = color.startsWith('#') ? color : `#${color}`;
-      if (validHexColor.length === 4 || validHexColor.length === 7) {
-        selectedObject.object.set('fill', validHexColor);
-        canvas.renderAll();
-        saveCanvasState(canvas);
+  const debouncedHandleColorChange = useMemo(() => {
+    return debounce((color: string) => {
+      // if mouse is still down, don't update the color
+      if (isMouseDownRef.current) return;
+      if (selectedObject.object && canvas) {
+        const validHexColor = color.startsWith('#') ? color : `#${color}`;
+        if (validHexColor.length === 7) {
+          selectedObject.object.set('fill', validHexColor);
+          // Instead of calling renderAll immediately, schedule it in requestAnimationFrame:
+          requestAnimationFrame(() => {
+            canvas.renderAll();
+          });
+          saveCanvasState(canvas);
+        }
       }
-    }
-  }, 300);
+    }, 300);
+  }, [canvas, selectedObject]);
 
   // Update FontControls to disable controls when nothing (or non-text) is selected.
   const FontControls = () => {
@@ -479,10 +495,7 @@ export const ImageOverlay: FC = () => {
               updateTextStyles('fontFamily', newFamily);
             }
           }}
-          className={cn(
-            'px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500',
-            !isTextSelected && 'cursor-not-allowed opacity-50'
-          )}
+          className={cn('px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500', !isTextSelected && 'cursor-not-allowed opacity-50')}
           disabled={!isTextSelected}
         >
           {AVAILABLE_FONTS.map((font) => (
@@ -503,10 +516,7 @@ export const ImageOverlay: FC = () => {
             }}
             min='1'
             max='200'
-            className={cn(
-              'w-20 px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500',
-              !isTextSelected && 'cursor-not-allowed opacity-50'
-            )}
+            className={cn('w-20 px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500', !isTextSelected && 'cursor-not-allowed opacity-50')}
             disabled={!isTextSelected}
           />
         </div>
@@ -536,7 +546,7 @@ export const ImageOverlay: FC = () => {
   };
 
   // Update the handleImageUpload function
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!canvas || !event.target.files?.[0]) return;
 
     const file = event.target.files[0];
@@ -544,9 +554,9 @@ export const ImageOverlay: FC = () => {
 
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
-      
+
       // Find and remove the existing circle logo
-      const existingLogo = canvas.getObjects().find(obj => obj.type === 'circle') as fabric.Circle | undefined;
+      const existingLogo = canvas.getObjects().find((obj) => obj.type === 'circle') as fabric.Circle | undefined;
       if (existingLogo) {
         const { left, top } = existingLogo;
         canvas.remove(existingLogo);
@@ -554,14 +564,15 @@ export const ImageOverlay: FC = () => {
         // Create a new image object
         const imgElement = new Image();
         imgElement.src = dataUrl;
+        imgElement.crossOrigin = 'Anonymous';
         imgElement.onload = () => {
-          const fabricImage = new fabric.Image(imgElement)
-          
+          const fabricImage = new fabric.Image(imgElement);
+
           // Create a circular clipPath with desired radius
           const clipPath = new fabric.Circle({
             radius: imgElement.width / 2,
             originX: 'center',
-            originY: 'center'
+            originY: 'center',
           });
 
           fabricImage.set({
@@ -570,7 +581,7 @@ export const ImageOverlay: FC = () => {
             clipPath: clipPath,
             selectable: true,
             hasControls: true,
-            name: 'logo'
+            name: 'logo',
           });
 
           canvas.add(fabricImage);
@@ -583,126 +594,36 @@ export const ImageOverlay: FC = () => {
     reader.readAsDataURL(file);
   };
 
-  // Update the Sidebar component
-  const Sidebar = () => {
-    const getColorLabel = () => {
-      if (selectedObject.type === 'group') {
-        return 'Multiple Items Selected';
-      }
-      switch (selectedObject.type) {
-        case 'darkOverlay':
-          return 'Dark Overlay Color';
-        case 'whiteOverlay':
-          return 'Light Overlay Color';
-        case 'text':
-          return 'Text Color';
-        case 'companyName':
-          return 'Company Name Color';
-        case 'logo':
-          return 'Logo / Image';
-        default:
-          return 'Select an element';
-      }
-    };
-
-    return (
-      <div ref={sidebarRef} className='w-64 bg-white border-r border-gray-200 p-4 fixed left-0 top-0 h-full shadow-lg overflow-y-auto'>
-        <h3 className='text-lg font-semibold mb-4'>Element Properties</h3>
-        
-        {selectedObject.type === 'logo' ? (
-          <div className='space-y-4'>
-            <div>
-              <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
-              {brandThemeSettings?.logoUrl && (
-                <div className='mb-4'>
-                  <img
-                    src={brandThemeSettings.logoUrl}
-                    alt="Current logo"
-                    className="w-24 h-24 object-cover rounded-full mb-4"
-                  />
-                </div>
-              )}
-              
-              <label className='block'>
-                <span className='text-sm text-gray-600 mb-2 block'>Upload new image</span>
-                <input
-                  type='file'
-                  accept='image/*'
-                  onChange={handleImageUpload}
-                  className='block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-medium
-                    file:bg-yellow-50 file:text-yellow-700
-                    hover:file:bg-yellow-100
-                    cursor-pointer'
-                />
-              </label>
-            </div>
-          </div>
-        ) : selectedObject.type && selectedObject.type !== 'image' && selectedObject.type !== 'group' ? (
-          <div className='space-y-4'>
-            <div>
-              <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
-              <div className='p-2 border rounded-md'>
-                <HexColorPicker
-                  color={selectedFillColor}
-                  onChange={(color: string) => {
-                    setSelectedFillColor(color);
-                    debouncedHandleColorChange(color);
-                  }}
-                />
-                <input
-                  type='text'
-                  value={selectedFillColor}
-                  onChange={(e) => {
-                    setSelectedFillColor(e.target.value);
-                    debouncedHandleColorChange(e.target.value);
-                  }}
-                  className='mt-2 p-2 border rounded-md w-full'
-                />
-              </div>
-            </div>
-          </div>
-        ) : selectedObject.type === 'group' ? (
-          <p className='text-gray-500'>Multiple items selected. Deselect to edit properties individually.</p>
-        ) : (
-          <p className='text-gray-500'>Select an element to edit its properties</p>
-        )}
-      </div>
-    );
-  };
-
   // Add this new useEffect after your other useEffects
   useEffect(() => {
     if (!canvas || !canvasRef.current) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       if (!canvasRef.current) return;
-      
-      // Get the upper canvas element (where Fabric.js renders objects and controls)
       const upperCanvas = canvasRef.current.parentElement?.querySelector('.upper-canvas');
-      
-      // Check if the click target is outside the canvas container, the upper canvas, the sidebar, and the controls container
-      if (!canvasRef.current.parentElement?.contains(event.target as Node) && 
-          !upperCanvas?.contains(event.target as Node) && 
-          !sidebarRef.current?.contains(event.target as Node) &&
-          !controlsRef.current?.contains(event.target as Node)) {
+      if (
+        !canvasRef.current.parentElement?.contains(event.target as Node) &&
+        !upperCanvas?.contains(event.target as Node) &&
+        !sidebarRef.current?.contains(event.target as Node) &&
+        !controlsRef.current?.contains(event.target as Node) &&
+        !exportControlsRef.current?.contains(event.target as Node)
+      ) {
         canvas.discardActiveObject();
         setSelectedObject({ type: null, object: null });
-        setSelectedFillColor('');
         canvas.renderAll();
       }
     };
 
-    // Add the event listener
-    document.addEventListener('mousedown', handleClickOutside);
+    // Commented out for debugging:
+    // document.addEventListener('mousedown', handleClickOutside);
 
-    // Clean up
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    // Commented out cleanup:
+    // return () => {
+    //   document.removeEventListener('mousedown', handleClickOutside);
+    // };
   }, [canvas]);
+
+  // Note: Remember to restore this functionality once debugging is complete.
 
   // Update the handleWindowFocus function inside the useEffect
   useEffect(() => {
@@ -729,6 +650,48 @@ export const ImageOverlay: FC = () => {
     };
   }, [canvas, history]);
 
+  const handleExport = ({ quality }: { quality?: number }) => {
+    if (!canvas) return;
+    // Create a data URL for the canvas with the selected format.
+    try {
+      const dataUrl = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 2 });
+      console.log('dataUrl: ', dataUrl);
+      // download the dataUrl
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = 'og-image.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error exporting image:', error);
+    }
+  };
+
+  const ExportControls = () => {
+    return (
+      <div className='flex gap-3 mb-4'>
+        <button
+          onClick={() => {
+            console.log('Export button onClick');
+            handleExport({ quality: 1 });
+          }}
+          className='px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-100'
+        >
+          Export
+        </button>
+      </div>
+    );
+  };
+
+  if (!id && !!recentImages) {
+    return (
+      <Editor>
+        <ImageGrid images={recentImages} />
+      </Editor>
+    );
+  }
+
   if (imageDataLoading || proxyLoading) {
     return (
       <div className='flex items-center justify-center h-64'>
@@ -754,28 +717,133 @@ export const ImageOverlay: FC = () => {
   }
 
   return (
-    <div className='flex'>
-      <Sidebar />
-      <div className='flex-1 ml-64'>
-        <div className='max-w-4xl mx-auto p-4'>
-          <div className='space-y-4'>
-            <div className='flex flex-wrap gap-3 mb-4'>
-              <div ref={controlsRef}>
-                <FontControls />
-              </div>
-              {/* <HistoryControls /> */}
-            </div>
+    <Editor>
+      <div className='flex h-screen max-w-[90%] mr-auto'>
+        <Sidebar handleImageUpload={handleImageUpload} debouncedHandleColorChange={debouncedHandleColorChange} brandThemeSettings={brandThemeSettings} sidebarRef={sidebarRef} selectedObject={selectedObject} />
 
-            <div className='shadow-lg border border-gray-300'>
-              <canvas ref={canvasRef} />
-              <div className='p-4 bg-gray-50 dark:bg-gray-800'>
-                <p className='text-sm text-gray-600 dark:text-gray-300'>Processed Image with Overlay</p>
-                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>{imageData.userPrompt}</p>
+          <div className='w-full p-4'>
+            <div className='space-y-4 w-full'>
+              <div className='flex flex-wrap justify-between gap-3 mb-4'>
+                <div ref={controlsRef}>
+                  <FontControls />
+                </div>
+                <div ref={exportControlsRef}>
+                  <ExportControls />
+                </div>
+              </div>
+
+              <div className='shadow-lg border border-gray-300'>
+                <canvas ref={canvasRef} />
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+
+    </Editor>
   );
 };
+
+interface SidebarProps {
+  selectedObject: SelectedObject;
+  sidebarRef: RefObject<HTMLDivElement>;
+  brandThemeSettings?: BrandTheme | null;
+  handleImageUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  debouncedHandleColorChange: (color: string) => void;
+}
+
+export const Sidebar: FC<SidebarProps> = memo(({ handleImageUpload, debouncedHandleColorChange, brandThemeSettings, sidebarRef, selectedObject }) => {
+  const getColorLabel = () => {
+    if (selectedObject.type === 'group') {
+      return 'Multiple Items Selected';
+    }
+    switch (selectedObject.type) {
+      case 'darkOverlay':
+        return 'Dark Overlay Color';
+      case 'whiteOverlay':
+        return 'Light Overlay Color';
+      case 'text':
+        return 'Text Color';
+      case 'companyName':
+        return 'Company Name Color';
+      case 'logo':
+        return 'Logo / Image';
+      default:
+        return 'Select an element';
+    }
+  };
+
+  const ColorInput = memo(({ selectedObject }: { selectedObject: SelectedObject }) => {
+    const [tempColor, setTempColor] = useState(selectedObject.object?.get('fill') || '');
+
+    return (
+      <input
+        type='text'
+        value={tempColor}
+        onChange={(e) => {
+          setTempColor(e.target.value);
+          debouncedHandleColorChange(e.target.value);
+        }}
+        className='mt-2 p-2 border rounded-md w-full'
+      />
+    );
+  });
+
+  return (
+    <div ref={sidebarRef} className='w-100 bg-white border-r border-gray-200 p-4 shadow-lg overflow-y-auto'>
+      <h3 className='text-lg font-semibold mb-4'>Element Properties</h3>
+
+      {selectedObject.type === 'logo' ? (
+        <div className='space-y-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
+            {brandThemeSettings?.logoUrl && (
+              <div className='mb-4'>
+                <img src={brandThemeSettings.logoUrl} alt='Current logo' className='w-24 h-24 object-cover rounded-full mb-4' />
+              </div>
+            )}
+
+            <label className='block'>
+              <span className='text-sm text-gray-600 mb-2 block'>Upload new image</span>
+              <input
+                type='file'
+                accept='image/*'
+                onChange={handleImageUpload}
+                className='block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-medium
+                    file:bg-yellow-50 file:text-yellow-700
+                    hover:file:bg-yellow-100
+                    cursor-pointer'
+              />
+            </label>
+          </div>
+        </div>
+      ) : selectedObject.type && selectedObject.type !== 'image' && selectedObject.type !== 'group' ? (
+        <div className='space-y-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
+            <div className='p-2 border rounded-md'>
+              <HexColorPicker
+                color={selectedObject.object?.get('fill') || ''}
+                onPointerUp={() => {
+                  if (selectedObject.object) {
+                    debouncedHandleColorChange(selectedObject.object.get('fill') || '');
+                  }
+                }}
+                onChange={(color: string) => {
+                  selectedObject.object?.set('fill', color);
+                }}
+              />
+              <ColorInput selectedObject={selectedObject} />
+            </div>
+          </div>
+        </div>
+      ) : selectedObject.type === 'group' ? (
+        <p className='text-gray-500'>Multiple items selected. Deselect to edit properties individually.</p>
+      ) : (
+        <p className='text-gray-500'>Select an element to edit its properties</p>
+      )}
+    </div>
+  );
+});
