@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import Editor from '../Editor';
 import { ColorPicker } from './ColorPicker';
 import { ThemeSettings } from './ThemeSettings';
+import BrandLogo from './BrandLogo';
 import { useQuery } from 'wasp/client/operations';
 import { getBrandThemeSettings } from 'wasp/client/operations';
 
@@ -20,6 +21,7 @@ export const Brand: FC = () => {
         </div>
       ) : (
         <>
+          <BrandLogo />
           <ColorPicker />
           <ThemeSettings onSubmit={(data) => console.log('Theme settings:', data)} />
         </>

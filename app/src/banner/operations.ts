@@ -13,6 +13,7 @@ import type {
   GenerateBannerFromTemplate,
   GetImageTemplates,
   GetImageTemplateById,
+  SaveBrandLogo,
 } from 'wasp/server/operations';
 import type { FileOutput, Prediction } from 'replicate';
 
@@ -570,4 +571,46 @@ export const getBrandThemeSettings: GetBrandThemeSettings<void, BrandTheme | nul
     throw new HttpError(401);
   }
   return await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
+};
+
+export const saveBrandLogo: SaveBrandLogo<
+  { 
+    fileName: string; 
+    fileExtension: string; 
+    fileType: string;
+    base64Data: string;
+  }, 
+  void
+> = async ({ fileName, fileExtension, fileType, base64Data }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+
+  try {
+    // Convert base64 to buffer
+    const base64String = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    const fileBuffer = Buffer.from(base64String, 'base64');
+
+    const { uploadUrl, key } = await getUploadFileSignedURLFromS3({
+      fileName: `${fileName}.${fileExtension}`,
+      fileType,
+      userInfo: context.user.id,
+    });
+
+    // Upload buffer to S3
+    await axios.put(uploadUrl, fileBuffer, {
+      headers: {
+        'Content-Type': `image/${fileType}`,
+      },
+    });
+
+    const region = process.env.AWS_S3_REGION;
+    const bucketName = process.env.AWS_S3_FILES_BUCKET;
+    const logoUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+
+    await saveBrandThemeSettings({ brandTheme: { logoUrl } }, context);
+  } catch (error: any) {
+    console.error('Error saving brand logo:', error);
+    throw new HttpError(500, `Failed to save brand logo: ${error.message}`);
+  }
 };

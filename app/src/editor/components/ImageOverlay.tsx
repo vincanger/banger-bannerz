@@ -1,13 +1,14 @@
-import { FC, useEffect, useRef, useState, memo } from 'react';
+import { FC, useEffect, useRef, useState, memo, act } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from 'wasp/client/operations';
 import { getGeneratedImageDataById, getImageProxy, getBrandThemeSettings } from 'wasp/client/operations';
-import type { GeneratedImageData } from 'wasp/entities';
+import type { GeneratedImageData, BrandTheme } from 'wasp/entities';
 import { HexColorPicker } from 'react-colorful';
 import * as fabric from 'fabric';
 import { FabricImage, FabricObject } from 'fabric';
-import { FaPlus, FaMinus, FaChevronDown } from 'react-icons/fa';
+import { FaPlus, FaMinus, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import debounce from 'lodash/debounce';
+import { cn } from '../../client/cn';
 
 interface ColorButtonProps {
   color: string;
@@ -36,7 +37,7 @@ const getDarkestColor = (colors: string[]): string => {
 const AVAILABLE_FONTS = ['Noto Sans', 'Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Verdana', 'Roboto', 'Open Sans'];
 
 interface SelectedObject {
-  type: 'darkOverlay' | 'whiteOverlay' | 'text' | 'line' | 'logo' | 'companyName' | 'image' | null;
+  type: 'darkOverlay' | 'whiteOverlay' | 'text' | 'line' | 'logo' | 'companyName' | 'image' | 'group' | null;
   object: fabric.Object | null;
 }
 
@@ -52,20 +53,23 @@ interface CustomFabricObject extends fabric.Object {
 export const ImageOverlay: FC = () => {
   const { id } = useParams();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [selectedObject, setSelectedObject] = useState<SelectedObject>({ type: null, object: null });
+  const [selectedFillColor, setSelectedFillColor] = useState('');
 
   const { data: imageData, isLoading: imageDataLoading, error: imageDataError } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id });
 
   const { data: proxiedImageUrl, isLoading: proxyLoading, error: proxyError } = useQuery(getImageProxy, { url: imageData?.url || '' }, { enabled: !!imageData?.url });
 
-  const { data: brandThemeSettings, isLoading: brandThemeSettingsLoading, error: brandThemeSettingsError } = useQuery(getBrandThemeSettings);
+  const { data: brandThemeSettings, isLoading: brandThemeSettingsLoading, error: brandThemeSettingsError } = 
+    useQuery(getBrandThemeSettings);
 
   const [darkOverlayColor, setDarkOverlayColor] = useState('#000000D9');
   const [whiteOverlayColor, setWhiteOverlayColor] = useState('#FFFFFF');
   const [isDarkInitialized, setIsDarkInitialized] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
 
   const saveCanvasState = (fabricCanvas: fabric.Canvas) => {
     // Use toObject to include custom properties like 'name'
@@ -113,17 +117,11 @@ export const ImageOverlay: FC = () => {
 
   useEffect(() => {
     if (!canvasRef.current || !proxiedImageUrl || !imageData) return;
+    if (canvas) return; // Don't reinitialize the canvas if it already exists
 
-    // Use TARGET_WIDTH and TARGET_HEIGHT instead throughout the effect
-
-    // Cleanup any existing canvas
-    if (canvas) {
-      canvas.dispose();
-    }
-
-    // Calculate container width and scale
+    // Calculate container width and initial scale
     const containerWidth = canvasRef.current.parentElement?.clientWidth || TARGET_WIDTH;
-    const scale = Math.min(1, containerWidth / TARGET_WIDTH);
+    const initialScale = Math.min(1, containerWidth / TARGET_WIDTH);
 
     // Initialize Fabric canvas
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
@@ -132,36 +130,33 @@ export const ImageOverlay: FC = () => {
       backgroundColor: 'white',
       preserveObjectStacking: true,
       devicePixelRatio: 1,
+      selection: true
     });
 
-    // Add selection event listeners right after canvas initialization
+    // Add selection and event listeners
     fabricCanvas.on('selection:created', handleObjectSelection);
     fabricCanvas.on('selection:updated', handleObjectSelection);
 
-    // Add keyboard event listener
     const handleKeyDown = (e: KeyboardEvent) => {
       const MOVE_DISTANCE = e.shiftKey ? 10 : 1;
       const activeObject = fabricCanvas.getActiveObject();
-
       if (!activeObject) return;
-
       switch (e.key) {
         case 'ArrowLeft':
-          activeObject.left! -= MOVE_DISTANCE / scale;
+          activeObject.left! -= MOVE_DISTANCE / initialScale;
           break;
         case 'ArrowRight':
-          activeObject.left! += MOVE_DISTANCE / scale;
+          activeObject.left! += MOVE_DISTANCE / initialScale;
           break;
         case 'ArrowUp':
-          activeObject.top! -= MOVE_DISTANCE / scale;
+          activeObject.top! -= MOVE_DISTANCE / initialScale;
           break;
         case 'ArrowDown':
-          activeObject.top! += MOVE_DISTANCE / scale;
+          activeObject.top! += MOVE_DISTANCE / initialScale;
           break;
         default:
           return;
       }
-
       activeObject.setCoords();
       fabricCanvas.renderAll();
       e.preventDefault();
@@ -169,17 +164,29 @@ export const ImageOverlay: FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
 
-    // Set the display size
-    fabricCanvas.setWidth(TARGET_WIDTH * scale);
-    fabricCanvas.setHeight(TARGET_HEIGHT * scale);
-    fabricCanvas.setZoom(scale);
+    // Set display size and initial zoom
+    fabricCanvas.setWidth(TARGET_WIDTH * initialScale);
+    fabricCanvas.setHeight(TARGET_HEIGHT * initialScale);
+    fabricCanvas.setZoom(initialScale);
+    (fabricCanvas as any).initialScale = initialScale;
+
+    // Mouse event handlers
+    let isDragging = false;
+
+    const originalFindTarget = fabricCanvas.findTarget.bind(fabricCanvas);
+    fabricCanvas.findTarget = function(e: fabric.TPointerEvent) {
+      if (isDragging) {
+        return undefined;
+      }
+      return originalFindTarget(e);
+    };
 
     setCanvas(fabricCanvas);
 
     FabricImage.fromObject({ type: 'image', src: proxiedImageUrl }).then((fabricImageFromUrl) => {
       const scale = Math.min(TARGET_WIDTH / fabricImageFromUrl.width!, TARGET_HEIGHT / fabricImageFromUrl.height!);
-      fabricImageFromUrl.scaleX = scale * zoomLevel;
-      fabricImageFromUrl.scaleY = scale * zoomLevel;
+      fabricImageFromUrl.scaleX = scale;
+      fabricImageFromUrl.scaleY = scale;
       fabricImageFromUrl.originX = 'center';
       fabricImageFromUrl.originY = 'center';
       const overlayWidth = TARGET_WIDTH / 3 + 40;
@@ -188,7 +195,7 @@ export const ImageOverlay: FC = () => {
       fabricImageFromUrl.selectable = true;
       fabricImageFromUrl.hasControls = true;
       fabricImageFromUrl.setCoords();
-      // Fill white background first
+
       const background = new fabric.Rect({
         left: 0,
         top: 0,
@@ -199,11 +206,8 @@ export const ImageOverlay: FC = () => {
         evented: false,
       });
       fabricCanvas.add(background);
-
-      // Add image next
       fabricCanvas.add(fabricImageFromUrl);
 
-      // Create dark overlay
       const darkOverlay = new fabric.Rect({
         left: 0,
         top: 0,
@@ -216,7 +220,6 @@ export const ImageOverlay: FC = () => {
       });
       fabricCanvas.add(darkOverlay);
 
-      // Create white overlay with rounded corners
       const padding = 50;
       const whiteOverlay = new fabric.Rect({
         left: padding,
@@ -287,26 +290,61 @@ export const ImageOverlay: FC = () => {
       });
       fabricCanvas.add(horizontalLine);
 
-      // Add company logo circle
-      const logoSize = 24;
+      // Add company logo - either circle or image
       const logoY = lineY + 40;
-      const logo = new fabric.Circle({
-        left: textPadding,
-        top: logoY,
-        radius: logoSize / 2,
-        fill: textColor,
-        selectable: true,
-        hasControls: true,
-      });
-      fabricCanvas.add(logo);
+      const desiredLogoSize = 44;
+
+      if (brandThemeSettings?.logoUrl) {
+        console.log('Brand theme settings:', brandThemeSettings);
+        const imgElement = new Image();
+        imgElement.src = brandThemeSettings.logoUrl;
+        imgElement.onload = () => {
+          const fabricImage = new fabric.Image(imgElement);
+          // scale the image down to the desired size
+          const scale = desiredLogoSize / Math.max(fabricImage.width!, fabricImage.height!);
+          fabricImage.scaleX = scale;
+          fabricImage.scaleY = scale;
+          
+          const clipPath = new fabric.Circle({
+            radius: imgElement.width / 2,
+            originX: 'center',
+            originY: 'center',
+          });
+
+          fabricImage.set({
+            left: textPadding,
+            top: logoY,
+            clipPath: clipPath,
+            selectable: true,
+            hasControls: true,
+            name: 'logo',
+          });
+
+          fabricCanvas.add(fabricImage);
+          fabricCanvas.renderAll();
+          saveCanvasState(fabricCanvas);
+        };
+      } else {
+        const logo = new fabric.Circle({
+          left: textPadding,
+          top: logoY,
+          radius: desiredLogoSize / 2,
+          fill: textColor,
+          selectable: true,
+          hasControls: true,
+          name: 'logo',
+        });
+        fabricCanvas.add(logo);
+      }
 
       // Add company name
-      const companyNameText = 'Company Name'; // TODO: imageData.companyName ||
+      const companyNameText = 'Company or Author Name'; // TODO: imageData.companyName ||
       const companyNameFontSize = fontSize * 0.4;
       const companyNameWidth = companyNameText.length * companyNameFontSize;
       const companyName = new fabric.Textbox(companyNameText, {
-        left: textPadding + logoSize + 15,
-        top: logoY,
+        left: textPadding + desiredLogoSize + 15,
+        // center the company name vertically
+        top: logoY + (desiredLogoSize - companyNameFontSize) / 2,
         width: companyNameWidth,
         fill: textColor,
         fontSize: companyNameFontSize,
@@ -316,10 +354,8 @@ export const ImageOverlay: FC = () => {
       });
       fabricCanvas.add(companyName);
 
-      // After all objects are added and setup is complete, save initial state and add listeners
-      saveCanvasState(fabricCanvas); // Save initial state
-
-      // Add event listeners for future modifications only
+      // After all objects are added, save initial state and add listeners for modifications:
+      saveCanvasState(fabricCanvas);
       fabricCanvas.on('object:modified', () => saveCanvasState(fabricCanvas));
       fabricCanvas.on('object:removed', () => saveCanvasState(fabricCanvas));
 
@@ -330,12 +366,12 @@ export const ImageOverlay: FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       fabricCanvas.dispose();
       setCanvas(null);
-      setHistory([]); // Clear history on cleanup
+      setHistory([]);
       fabricCanvas.off('selection:created', handleObjectSelection);
       fabricCanvas.off('selection:updated', handleObjectSelection);
       fabricCanvas.off('selection:cleared');
     };
-  }, [proxiedImageUrl, imageData, darkOverlayColor, whiteOverlayColor, zoomLevel]);
+  }, [proxiedImageUrl, imageData]);
 
   useEffect(() => {
     if (!isDarkInitialized && !!brandThemeSettings && brandThemeSettings?.colorScheme?.length > 0) {
@@ -345,37 +381,75 @@ export const ImageOverlay: FC = () => {
     }
   }, [brandThemeSettings, isDarkInitialized]);
 
-  // Modify the handleObjectSelection function
-  const handleObjectSelection = (e: { selected?: CustomFabricObject[] }) => {
-    const selected = e.selected?.[0];
-    if (!selected) {
+  // New effect to update overlay colors without reinitializing the canvas
+  useEffect(() => {
+    if (!canvas) return;
+    const darkOverlay = canvas.getObjects().find((obj) => (obj as any).name === 'darkOverlay');
+    if (darkOverlay) {
+      darkOverlay.set('fill', darkOverlayColor);
+    }
+    const whiteOverlay = canvas.getObjects().find((obj) => (obj as any).name === 'whiteOverlay');
+    if (whiteOverlay) {
+      whiteOverlay.set('fill', whiteOverlayColor);
+    }
+    canvas.renderAll();
+  }, [darkOverlayColor, whiteOverlayColor, canvas]);
+
+  const getObjectType = (target: fabric.Object, canvas: fabric.Canvas): SelectedObject['type'] => {
+    if (target.type === 'activeSelection') return 'group';
+    const name = (target as any).name;
+    if (name === 'darkOverlay') return 'darkOverlay';
+    if (name === 'whiteOverlay') return 'whiteOverlay';
+    if (name === 'logo') return 'logo';
+    switch (target.type) {
+      case 'textbox':
+        return 'text';
+      case 'line':
+        return 'line';
+      case 'image':
+        return 'image';
+      case 'text':
+        if (canvas && target !== canvas.getObjects().find((obj) => obj.type === 'textbox')) {
+          return 'companyName';
+        } else {
+          return 'text';
+        }
+      default:
+        return null;
+    }
+  };
+
+  const updateSelection = (target: fabric.Object | null, canvas: fabric.Canvas) => {
+    if (!target) {
+      console.log('No target');
       setSelectedObject({ type: null, object: null });
+      setSelectedFillColor('');
       return;
     }
 
-    // Use the name property to identify objects
-    switch (selected.name) {
-      case 'darkOverlay':
-        setSelectedObject({ type: 'darkOverlay', object: selected });
-        break;
-      case 'whiteOverlay':
-        setSelectedObject({ type: 'whiteOverlay', object: selected });
-        break;
-      default:
-        // Handle other objects as before
-        if (selected.type === 'textbox') {
-          setSelectedObject({ type: 'text', object: selected });
-        } else if (selected.type === 'line') {
-          setSelectedObject({ type: 'line', object: selected });
-        } else if (selected.type === 'circle') {
-          setSelectedObject({ type: 'logo', object: selected });
-        } else if (selected.type === 'text' && selected !== canvas?.getObjects().find((obj) => obj.type === 'textbox')) {
-          setSelectedObject({ type: 'companyName', object: selected });
-        } else if (selected.type === 'image') {
-          setSelectedObject({ type: 'image', object: selected });
-        }
-    }
+    const objectType = getObjectType(target, canvas);
+    console.log('Object type:', objectType);
+    setSelectedObject({ type: objectType, object: target });
+    setSelectedFillColor(target.get('fill') || '');
+    target.lockMovementX = false;
+    target.lockMovementY = false;
   };
+
+  function handleObjectSelection(this: fabric.Canvas, e: { selected?: CustomFabricObject[] }) {
+    console.log('Handle object selection');
+    console.log('Canvas:', this);
+    
+    // Prioritize the canvas' active object (this supports group selections)
+    const activeObject = this.getActiveObject();
+    console.log('Active object:', activeObject);
+    if (activeObject) {
+      updateSelection(activeObject, this);
+    } else {
+      const selected = e.selected?.[0] || null;
+      console.log('Selected:', selected);
+      updateSelection(selected, this);
+    }
+  }
 
   // Add function to handle color changes
   const debouncedHandleColorChange = debounce((color: string) => {
@@ -390,52 +464,55 @@ export const ImageOverlay: FC = () => {
     }
   }, 300);
 
-  const FontControls = () => (
-    <div className='flex gap-3 mb-4 items-center'>
-      <select
-        value={selectedObject.object?.get('fontFamily') || 'Noto Sans'}
-        onChange={(e) => {
-          const newFamily = e.target.value;
-          updateTextStyles('fontFamily', newFamily);
-        }}
-        className='px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500'
-      >
-        {AVAILABLE_FONTS.map((font) => (
-          <option key={font} value={font} style={{ fontFamily: font }}>
-            {font}
-          </option>
-        ))}
-      </select>
-      <div className='flex items-center gap-2'>
-        <input
-          type='number'
-          value={selectedObject.object?.get('fontSize') || 54}
+  // Update FontControls to disable controls when nothing (or non-text) is selected.
+  const FontControls = () => {
+    // Check if a text object (i.e. a fabric textbox) is selected.
+    const isTextSelected = selectedObject.type === 'text';
+
+    return (
+      <div className='flex gap-3 mb-4 items-center'>
+        <select
+          value={selectedObject.object?.get('fontFamily') || 'Noto Sans'}
           onChange={(e) => {
-            const newSize = parseInt(e.target.value);
-            if (newSize > 0) {
-              updateTextStyles('fontSize', newSize);
+            const newFamily = e.target.value;
+            if (isTextSelected) {
+              updateTextStyles('fontFamily', newFamily);
             }
           }}
-          min='1'
-          max='200'
-          className='w-20 px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500'
-        />
-        <span className='text-sm text-gray-500'>px</span>
+          className={cn(
+            'px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500',
+            !isTextSelected && 'cursor-not-allowed opacity-50'
+          )}
+          disabled={!isTextSelected}
+        >
+          {AVAILABLE_FONTS.map((font) => (
+            <option key={font} value={font} style={{ fontFamily: font }}>
+              {font}
+            </option>
+          ))}
+        </select>
+        <div className='flex items-center gap-2'>
+          <input
+            type='number'
+            value={selectedObject.object?.get('fontSize') || 54}
+            onChange={(e) => {
+              const newSize = parseInt(e.target.value, 10);
+              if (newSize > 0 && isTextSelected) {
+                updateTextStyles('fontSize', newSize);
+              }
+            }}
+            min='1'
+            max='200'
+            className={cn(
+              'w-20 px-3 py-2 rounded-md border border-gray-300 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500',
+              !isTextSelected && 'cursor-not-allowed opacity-50'
+            )}
+            disabled={!isTextSelected}
+          />
+        </div>
       </div>
-    </div>
-  );
-
-  const ZoomControls = () => (
-    <div className='flex gap-3 mb-4'>
-      <button onClick={() => setZoomLevel((prev) => Math.min(prev + 0.1, 3))} className='px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-100'>
-        <FaPlus />
-      </button>
-      <button onClick={() => setZoomLevel((prev) => Math.max(prev - 0.1, 0.5))} className='px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-100'>
-        <FaMinus />
-      </button>
-      <span className='self-center'>Zoom: {zoomLevel.toFixed(1)}x</span>
-    </div>
-  );
+    );
+  };
 
   const HistoryControls = () => (
     <div className='flex gap-3 mb-4'>
@@ -458,9 +535,60 @@ export const ImageOverlay: FC = () => {
     }
   };
 
-  // Replace ColorControls with Sidebar
+  // Update the handleImageUpload function
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canvas || !event.target.files?.[0]) return;
+
+    const file = event.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      
+      // Find and remove the existing circle logo
+      const existingLogo = canvas.getObjects().find(obj => obj.type === 'circle') as fabric.Circle | undefined;
+      if (existingLogo) {
+        const { left, top } = existingLogo;
+        canvas.remove(existingLogo);
+
+        // Create a new image object
+        const imgElement = new Image();
+        imgElement.src = dataUrl;
+        imgElement.onload = () => {
+          const fabricImage = new fabric.Image(imgElement)
+          
+          // Create a circular clipPath with desired radius
+          const clipPath = new fabric.Circle({
+            radius: imgElement.width / 2,
+            originX: 'center',
+            originY: 'center'
+          });
+
+          fabricImage.set({
+            left: left,
+            top: top,
+            clipPath: clipPath,
+            selectable: true,
+            hasControls: true,
+            name: 'logo'
+          });
+
+          canvas.add(fabricImage);
+          canvas.renderAll();
+          saveCanvasState(canvas);
+        };
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // Update the Sidebar component
   const Sidebar = () => {
     const getColorLabel = () => {
+      if (selectedObject.type === 'group') {
+        return 'Multiple Items Selected';
+      }
       switch (selectedObject.type) {
         case 'darkOverlay':
           return 'Dark Overlay Color';
@@ -471,31 +599,135 @@ export const ImageOverlay: FC = () => {
         case 'companyName':
           return 'Company Name Color';
         case 'logo':
-          return 'Logo Color';
+          return 'Logo / Image';
         default:
           return 'Select an element';
       }
     };
 
     return (
-      <div className='w-64 bg-white border-r border-gray-200 p-4 fixed left-0 top-0 h-full shadow-lg'>
+      <div ref={sidebarRef} className='w-64 bg-white border-r border-gray-200 p-4 fixed left-0 top-0 h-full shadow-lg overflow-y-auto'>
         <h3 className='text-lg font-semibold mb-4'>Element Properties</h3>
-        {selectedObject.type && selectedObject.type !== 'image' ? (
+        
+        {selectedObject.type === 'logo' ? (
+          <div className='space-y-4'>
+            <div>
+              <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
+              {brandThemeSettings?.logoUrl && (
+                <div className='mb-4'>
+                  <img
+                    src={brandThemeSettings.logoUrl}
+                    alt="Current logo"
+                    className="w-24 h-24 object-cover rounded-full mb-4"
+                  />
+                </div>
+              )}
+              
+              <label className='block'>
+                <span className='text-sm text-gray-600 mb-2 block'>Upload new image</span>
+                <input
+                  type='file'
+                  accept='image/*'
+                  onChange={handleImageUpload}
+                  className='block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-medium
+                    file:bg-yellow-50 file:text-yellow-700
+                    hover:file:bg-yellow-100
+                    cursor-pointer'
+                />
+              </label>
+            </div>
+          </div>
+        ) : selectedObject.type && selectedObject.type !== 'image' && selectedObject.type !== 'group' ? (
           <div className='space-y-4'>
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-2'>{getColorLabel()}</label>
               <div className='p-2 border rounded-md'>
-                <HexColorPicker color={selectedObject.object?.get('fill')} onChange={debouncedHandleColorChange} />
-                <input type='text' defaultValue={selectedObject.object?.get('fill')} onChange={(e) => debouncedHandleColorChange(e.target.value)} className='mt-2 p-2 border rounded-md' />
+                <HexColorPicker
+                  color={selectedFillColor}
+                  onChange={(color: string) => {
+                    setSelectedFillColor(color);
+                    debouncedHandleColorChange(color);
+                  }}
+                />
+                <input
+                  type='text'
+                  value={selectedFillColor}
+                  onChange={(e) => {
+                    setSelectedFillColor(e.target.value);
+                    debouncedHandleColorChange(e.target.value);
+                  }}
+                  className='mt-2 p-2 border rounded-md w-full'
+                />
               </div>
             </div>
           </div>
+        ) : selectedObject.type === 'group' ? (
+          <p className='text-gray-500'>Multiple items selected. Deselect to edit properties individually.</p>
         ) : (
           <p className='text-gray-500'>Select an element to edit its properties</p>
         )}
       </div>
     );
   };
+
+  // Add this new useEffect after your other useEffects
+  useEffect(() => {
+    if (!canvas || !canvasRef.current) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!canvasRef.current) return;
+      
+      // Get the upper canvas element (where Fabric.js renders objects and controls)
+      const upperCanvas = canvasRef.current.parentElement?.querySelector('.upper-canvas');
+      
+      // Check if the click target is outside the canvas container, the upper canvas, the sidebar, and the controls container
+      if (!canvasRef.current.parentElement?.contains(event.target as Node) && 
+          !upperCanvas?.contains(event.target as Node) && 
+          !sidebarRef.current?.contains(event.target as Node) &&
+          !controlsRef.current?.contains(event.target as Node)) {
+        canvas.discardActiveObject();
+        setSelectedObject({ type: null, object: null });
+        setSelectedFillColor('');
+        canvas.renderAll();
+      }
+    };
+
+    // Add the event listener
+    document.addEventListener('mousedown', handleClickOutside);
+
+    // Clean up
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [canvas]);
+
+  // Update the handleWindowFocus function inside the useEffect
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (canvas) {
+        // If the canvas objects are missing, try to restore from saved history
+        if (canvas.getObjects().length === 0 && history.length > 0) {
+          const lastState = history[history.length - 1];
+          canvas.loadFromJSON(lastState, () => {
+            canvas.renderAll();
+            console.log('Canvas restored from history on window focus. Objects count:', canvas.getObjects().length);
+          });
+        } else {
+          // Otherwise, just recalc offsets and render
+          canvas.calcOffset();
+          canvas.renderAll();
+          console.log('Window focused, canvas recalculated and re-rendered. Objects count:', canvas.getObjects().length);
+        }
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [canvas, history]);
 
   if (imageDataLoading || proxyLoading) {
     return (
@@ -528,8 +760,9 @@ export const ImageOverlay: FC = () => {
         <div className='max-w-4xl mx-auto p-4'>
           <div className='space-y-4'>
             <div className='flex flex-wrap gap-3 mb-4'>
-              <FontControls />
-              <ZoomControls />
+              <div ref={controlsRef}>
+                <FontControls />
+              </div>
               {/* <HistoryControls /> */}
             </div>
 

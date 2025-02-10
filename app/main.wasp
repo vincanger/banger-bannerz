@@ -85,6 +85,7 @@ app BangerBanners {
   },
 
   client: {
+    setupFn: import { setupQueryClient } from "@src/client/queryClient",
     rootComponent: import App from "@src/client/App",
   },
 
@@ -194,6 +195,11 @@ action saveBrandThemeSettings {
 
 query getBrandThemeSettings {
   fn: import { getBrandThemeSettings } from "@src/banner/operations",
+  entities: [User, BrandTheme]
+}
+
+action saveBrandLogo {
+  fn: import { saveBrandLogo } from "@src/banner/operations",
   entities: [User, BrandTheme]
 }
 //#endregion

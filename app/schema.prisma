@@ -42,6 +42,7 @@ model BrandTheme {
   colorScheme               String[]
   mood                      String[]
   imageTemplateId           String?
+  logoUrl                   String?
 }
 
 model GeneratedImageData {
