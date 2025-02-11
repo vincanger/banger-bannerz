@@ -1,3 +1,5 @@
+import type { AuthUser } from 'wasp/auth';
+
 import './Main.css';
 import NavBar from './components/NavBar/NavBar';
 import CookieConsentBanner from './components/cookie-consent/Banner';
@@ -10,6 +12,9 @@ import { useAuth } from 'wasp/client/auth';
 import { useIsLandingPage } from './hooks/useIsLandingPage';
 import { updateCurrentUser } from 'wasp/client/operations';
 import { Toaster } from 'react-hot-toast';
+import { BiLogIn } from 'react-icons/bi';
+import { Link as WaspRouterLink } from 'wasp/client/router';
+import DropdownUser from '../user/DropdownUser';
 
 /**
  * use this component to wrap all child components
@@ -17,8 +22,8 @@ import { Toaster } from 'react-hot-toast';
  */
 export default function App() {
   const location = useLocation();
-  const { data: user } = useAuth();
   const isLandingPage = useIsLandingPage();
+  const { data: user, isLoading: isUserLoading, isError: isUserError } = useAuth();
   const navigationItems = isLandingPage ? landingPageNavigationItems : appNavigationItems;
 
   const shouldDisplayAppNavBar = useMemo(() => {
@@ -51,12 +56,11 @@ export default function App() {
 
   return (
     <>
-      <div className='min-h-screen dark:text-white dark:bg-boxdark-2'>
+      <div className='min-h-screen mt-2 dark:text-white dark:bg-boxdark-2'>
         {isAdminDashboard ? (
           <Outlet />
         ) : (
           <>
-            {/* {shouldDisplayAppNavBar && <NavBar navigationItems={navigationItems} />} */}
             <div>
               <Outlet />
             </div>
@@ -64,7 +68,26 @@ export default function App() {
         )}
       </div>
       <CookieConsentBanner />
-      <Toaster position='top-right' />
+      <FloatingUserMenu isUserLoading={isUserLoading} user={user} />
+      <Toaster position='bottom-center' />
     </>
   );
 }
+
+const FloatingUserMenu = ({ isUserLoading, user }: { isUserLoading: boolean; user?: AuthUser | null }) => {
+  return (
+    <div className='fixed bottom-4 right-4 z-50'>
+      {isUserLoading ? null : !user ? (
+        <WaspRouterLink to={routes.LoginRoute.to}>
+          <div className='w-14 h-14 flex items-center justify-center bg-yellow-500 rounded-full shadow-lg hover:bg-yellow-600'>
+            <BiLogIn size='1.5rem' className='mr-1 text-white' />
+          </div>
+        </WaspRouterLink>
+      ) : (
+        <div className='w-14 h-14 flex items-center justify-center bg-white rounded-full shadow-lg'>
+          <DropdownUser user={user} />
+        </div>
+      )}
+    </div>
+  );
+};

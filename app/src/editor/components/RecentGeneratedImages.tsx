@@ -30,7 +30,9 @@ export const RecentGeneratedImages: FC = () => {
 
   return (
     <Editor>
-      <ImageGrid images={recentImages} />
+      <div className='flex flex-col items-center justify-start'>
+        <ImageGrid images={recentImages} />
+      </div>
     </Editor>
   );
 };

@@ -4,10 +4,9 @@ import type { FluxDevAspectRatio } from '../../banner/imageSettings';
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
-import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, getImageTemplateById } from 'wasp/client/operations';
+import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, getImageTemplateById, getRecentGeneratedImageData } from 'wasp/client/operations';
 import { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 import { ImageGrid } from './ImageGrid';
-import { RecentGeneratedImages } from './RecentGeneratedImages';
 import { Modal } from './Modal';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { FaEdit, FaHandSparkles, FaQuestionCircle, FaPalette, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight } from 'react-icons/fa';
@@ -15,6 +14,8 @@ import { cn } from '../../client/cn';
 import { Menu } from '@headlessui/react';
 import { routes } from 'wasp/client/router';
 import { PlatformAspectRatio } from '../../banner/imageSettings';
+import { useAuth } from 'wasp/client/auth';
+import toast from 'react-hot-toast';
 
 export type GenerateImageSource = 'topic' | 'prompt';
 
@@ -23,6 +24,8 @@ export interface GeneratedImageDataWithTemplate extends GeneratedImageData {
 }
 
 export const GenerateImagePrompt: FC = () => {
+  const { data: user, isLoading: userLoading, error: userError } = useAuth();
+
   const [postTopic, setPostTopic] = useState('');
   const [generatedImages, setGeneratedImages] = useState<GeneratedImageDataWithTemplate[]>([]);
   const [isUsingBrandSettings, setIsUsingBrandSettings] = useState(false);
@@ -42,6 +45,7 @@ export const GenerateImagePrompt: FC = () => {
   const { data: imageData, isLoading, error } = useQuery(getGeneratedImageDataById, { id: imageId ?? '' }, { enabled: !!imageId });
   const { data: brandTheme } = useQuery(getBrandThemeSettings);
   const { data: selectedImageTemplate } = useQuery(getImageTemplateById, { id: imageTemplateId ?? '' }, { enabled: !!imageTemplateId });
+  const { data: recentImages } = useQuery(getRecentGeneratedImageData, undefined, { enabled: !isModalOpen });
 
   useEffect(() => {
     if (generateImageBy === 'prompt' && imageId) {
@@ -49,7 +53,7 @@ export const GenerateImagePrompt: FC = () => {
         setUserPrompt(imageData.userPrompt || '');
         setIsModalOpen(false);
       }
-    } 
+    }
   }, [generateImageBy, imageId, imageData, isLoading]);
 
   useEffect(() => {
@@ -67,6 +71,7 @@ export const GenerateImagePrompt: FC = () => {
   };
 
   const handleGenerateImageFromTitle = async () => {
+    if (!user) toast.error('Please login to generate images');
     try {
       setIsGeneratingImages(true);
       if (!imageTemplateId || !selectedImageTemplate?.id) {
@@ -101,7 +106,7 @@ export const GenerateImagePrompt: FC = () => {
   };
 
   const handleGenerateImageFromPrompt = async () => {
-    console.log('userPrompt: ', userPrompt);
+    if (!user) toast.error('Please login to generate images');
     if (!imageTemplateId || !selectedImageTemplate?.id) {
       throw new Error('Image template ID is required');
     }
@@ -129,7 +134,7 @@ export const GenerateImagePrompt: FC = () => {
   return (
     <Editor>
       <Tab.Group selectedIndex={generateImageBy === 'prompt' ? 1 : 0} onChange={handleTabChange}>
-        <div className='rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
+        <div className='flex flex-col 2xl:w-[65%] rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
           <Tab.List className='flex rounded-t-lg'>
             <Tab
               className={({ selected }) =>
@@ -266,11 +271,18 @@ export const GenerateImagePrompt: FC = () => {
       </Tab.Group>
 
       {/* Results Grid */}
-      {generatedImages.length > 0 && <ImageGrid images={generatedImages} />}
+      {generatedImages.length > 0 && (
+        <div className='p-4'>
+          <p className='text-sm italic text-gray-600 mb-4'>
+            The generated images below are temporary and will be <b>deleted after 24 hours</b> if they are not saved.
+          </p>
+          <ImageGrid images={generatedImages} />
+        </div>
+      )}
 
       {/* Modal for Recently Generated Images */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={'Recently Generated Images'}>
-        <RecentGeneratedImages />
+        {recentImages && <ImageGrid images={recentImages} />}
       </Modal>
     </Editor>
   );

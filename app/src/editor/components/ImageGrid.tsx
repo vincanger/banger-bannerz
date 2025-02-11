@@ -1,10 +1,9 @@
-import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
 import type { GeneratedImageDataWithTemplate } from './GenerateImagePrompt';
 
 import { cn } from '../../client/cn';
 import { FC, useState } from 'react';
 import { routes } from 'wasp/client/router';
-import { FaSync, FaEdit, FaExpand, FaSave } from 'react-icons/fa';
+import { FaHashtag, FaEdit, FaExpand, FaSave } from 'react-icons/fa';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { saveGeneratedImageData } from 'wasp/client/operations';
 import { toast } from 'react-hot-toast';
@@ -27,16 +26,23 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
         {images.map((image, index) => (
           <div key={image.url + index} className={`flex items-center gap-4 p-4 hover:bg-gray-50 group ${imageId === image.id ? 'bg-yellow-50' : ''}`}>
             {/* Thumbnail */}
-            <div className='relative w-24 h-24 flex-shrink-0'>
+            <div className='relative w-64 h-32 flex-shrink-0'>
               <img src={image.url} alt={`Generated option ${index + 1}`} className='w-full h-full object-cover rounded-lg' />
+              <button 
+                onClick={() => setEnlargedImage(image.url)} 
+                className='absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 opacity-0 hover:opacity-100 transition-opacity duration-200 rounded-lg'
+                title='Enlarge Image'
+              >
+                <FaExpand className='w-6 h-6 text-white' />
+              </button>
             </div>
 
             {/* Prompt and Actions */}
             <div className='flex-grow flex items-center justify-between'>
               {/* Prompt with popover */}
               <div className='relative group/prompt'>
-                <p className='text-sm text-gray-600 max-w-md truncate'>{image.userPrompt}</p>
-                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10 max-w-md'>{image.userPrompt}</div>
+                <p className='text-sm text-gray-600 max-w-sm truncate mr-8'>{image.userPrompt}</p>
+                <div className='invisible group-hover/prompt:visible absolute left-0 top-full mt-2 p-2 bg-gray-800 text-white text-sm rounded-lg shadow-lg z-10'>{image.userPrompt}</div>
               </div>
 
               {/* Actions */}
@@ -91,22 +97,21 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                   <span className='text-xs text-gray-600'>Save</span>
                 </button>
                 <button
-                  onClick={() => {
-                    /*TODO: Implement generate variations*/
+                  onClick={ () => {
+                    try {
+                      navigate(`${routes.ImageOverlayRouteWithId.build({ params: { id: image.id } })}`);
+                    } catch (error) {
+                      console.error('Failed to navigate to image overlay:', error);
+                      toast.error('Failed to navigate to OG image creation.');
+                    }
                   }}
                   className='flex flex-col items-center gap-1'
-                  title='Generate Variations'
+                  title='Create OG Image'
                 >
                   <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
-                    <FaSync className='w-4 h-4' />
+                    <FaHashtag className='w-4 h-4' />
                   </div>
-                  <span className='text-xs text-gray-600'>Variations</span>
-                </button>
-                <button onClick={() => setEnlargedImage(image.url)} className='flex flex-col items-center gap-1' title='Enlarge Image'>
-                  <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
-                    <FaExpand className='w-4 h-4' />
-                  </div>
-                  <span className='text-xs text-gray-600'>Enlarge</span>
+                  <span className='text-xs text-gray-600'>Create OG</span>
                 </button>
               </div>
             </div>

@@ -7,8 +7,17 @@ import { cn } from '../client/cn';
 
 export const UserMenuItems = ({ user, setMobileMenuOpen }: { user?: Partial<User>; setMobileMenuOpen?: any }) => {
   const path = window.location.pathname;
-  const landingPagePath = routes.LandingPageRoute.to;
   const adminDashboardPath = routes.AdminRoute.to;
+  const accountSettingsPath = routes.AccountRoute.to;
+  const pricingPagePath = routes.PricingPageRoute.to;
+  const generateImagePromptPath = routes.GenerateImagePromptRoute.to;
+
+  // make a record of the above paths
+  const pathsToShowImageGenerator: Record<string, string> = {
+    [adminDashboardPath]: adminDashboardPath,
+    [accountSettingsPath]: accountSettingsPath,
+    [pricingPagePath]: pricingPagePath,
+  };
 
   const handleMobileMenuClick = () => {
     if (setMobileMenuOpen) setMobileMenuOpen(false);
@@ -22,14 +31,14 @@ export const UserMenuItems = ({ user, setMobileMenuOpen }: { user?: Partial<User
           'px-6': path === adminDashboardPath,
         })}
       >
-        {path === landingPagePath || path === adminDashboardPath ? (
+        {path === pathsToShowImageGenerator[path] ? (
           <li>
             <WaspRouterLink
-              to={routes.DemoAppRoute.to}
+              to={generateImagePromptPath}
               className='flex items-center gap-3.5 text-sm font-medium duration-300 ease-in-out hover:text-yellow-500'
             >
               <MdOutlineSpaceDashboard size='1.1rem' />
-              AI Scheduler (Demo App)
+              Image Generator
             </WaspRouterLink>
           </li>
         ) : null}

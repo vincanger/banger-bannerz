@@ -15,7 +15,7 @@ import type {
   GetImageTemplateById,
   SaveBrandLogo,
 } from 'wasp/server/operations';
-import type { FileOutput, Prediction } from 'replicate';
+import type { FileOutput } from 'replicate';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
@@ -24,10 +24,18 @@ import Replicate from 'replicate';
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from 'wasp/server';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
-import { openai } from '../demo-ai-app/operations';
+import OpenAI from 'openai';
 import { getUploadFileSignedURLFromS3 } from '../file-upload/s3Utils';
 import { colorNames } from './colorNames';
 import { ImageStyle, ImageMood, ImageLighting, IdeogramImageResolution } from './imageSettings';
+
+export const openai = setupOpenAI();
+function setupOpenAI() {
+  if (!process.env.OPENAI_API_KEY) {
+    return new HttpError(500, 'OpenAI API key is not set');
+  }
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 const IDEOGRAM_BASE_URL = 'https://api.ideogram.ai';
 
@@ -157,7 +165,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           You are an expert blog and social media image prompt engineer. 
           You will be given a title or topic along with an example prompt and an image style. 
           Your job is to create an image prompt based on the title or topic. 
-          Use the example prompt and suggested image styles as a close guide, but ultimately use the title/topic of the post as the main idea within the prompt. 
+          Use the example prompt and suggested image styles as a guide, but make sure to prioritize the title of the post as the main idea within the prompt. 
           DO NOT create complex, abstract, or conceptual prompts. 
           DO NOT include any mention of text, words, brands, or logos, as you will be penalized if you do. 
           The prompts should not add text within the image.`,
@@ -165,11 +173,10 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
       {
         role: 'user',
         content: `
-          Please create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}. 
-          The image being generated is using a LoRA in the style of ${imageTemplate.description ?? imageTemplate.name}. 
+          Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}. 
+          The image being generated is using a fine-tuned model with this style: ${imageTemplate.description ?? imageTemplate.name}. 
           ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
-          ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''} 
-          Use the example prompt as a guide only, and make sure to prioritize the user provided information in your prompts such as title/topic, style, mood, and/or color palette. Do not include any mention of text, words, brands, or logos, as you will be penalized if you do. 
+          ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
           Here is the example prompt: ${imageTemplate.exampleImagePrompt}`,
       },
     ],
@@ -614,3 +621,4 @@ export const saveBrandLogo: SaveBrandLogo<
     throw new HttpError(500, `Failed to save brand logo: ${error.message}`);
   }
 };
+

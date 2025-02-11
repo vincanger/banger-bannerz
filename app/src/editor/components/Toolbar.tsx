@@ -1,13 +1,8 @@
 import type { FC } from 'react';
 
-import { routes } from 'wasp/client/router';
 import { useLocation } from 'react-router-dom';
-import { FaSave, FaUndo, FaRedo, FaImages, FaMagic, FaHistory } from 'react-icons/fa';
+import { FaImages, FaHistory } from 'react-icons/fa';
 
-const ROUTE_TITLES: Record<string, string> = {
-  [routes.GenerateImagePromptRoute.to]: 'Generate Banner',
-  // Add more routes here easily
-};
 
 interface ToolbarProps {
   isRecentImagesModalOpen: boolean;

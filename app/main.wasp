@@ -68,7 +68,7 @@ app BangerBanners {
     },
     onAfterSignup: import { onAfterSignup } from "@src/auth/hooks",
     onAuthFailedRedirectTo: "/login",
-    onAuthSucceededRedirectTo: "/generate-image",
+    onAuthSucceededRedirectTo: "/",
   },
 
   db: {
@@ -100,11 +100,6 @@ app BangerBanners {
       email: "me@example.com"
     },
   },
-}
-
-route LandingPageRoute { path: "/", to: LandingPage }
-page LandingPage {
-  component: import LandingPage from "@src/landing-page/LandingPage"
 }
 
 //#region Auth Pages
@@ -158,19 +153,16 @@ action updateUserById {
 //#endregion
 
 //#region Editor
-route EditorRoute { path: "/editor", to: EditorPage }
-page EditorPage {
-  component: import Editor from "@src/editor/Editor"
-}
-
 route ImageOverlayRoute { path: "/image-overlay", to: ImageOverlayPage }
 route ImageOverlayRouteWithId { path: "/image-overlay/:id", to: ImageOverlayPage }
 page ImageOverlayPage {
+  authRequired: true,
   component: import { ImageOverlay } from "@src/editor/components/ImageOverlay.tsx"
 }
 
 route BrandRoute { path: "/brand", to: BrandPage }
 page BrandPage {
+  authRequired: true,
   component: import { Brand } from "@src/editor/components/Brand.tsx"
 }
 
@@ -250,10 +242,11 @@ query getGeneratedImageDataById {
 //#region Image Generation
 route RecentGeneratedImagesRoute { path: "/recent-images", to: RecentGeneratedImagesPage }
 page RecentGeneratedImagesPage {
+  authRequired: true,
   component: import { RecentGeneratedImages } from "@src/editor/components/RecentGeneratedImages"
 }
 
-route GenerateImagePromptRoute { path: "/generate-image", to: GenerateImagePromptPage }
+route GenerateImagePromptRoute { path: "/", to: GenerateImagePromptPage }
 route GenerateImagePromptFromTemplateRoute { path: "/generate-image/:id", to: GenerateImagePromptPage }
 page GenerateImagePromptPage {
   component: import { GenerateImagePrompt } from "@src/editor/components/GenerateImagePrompt"
@@ -265,41 +258,15 @@ page EditImagePage {
   component: import { EditImage } from "@src/editor/components/EditImage"
 }
 
-//#region Demo AI App
-route DemoAppRoute { path: "/demo-app", to: DemoAppPage }
-page DemoAppPage {
-  authRequired: true,
-  component: import DemoAppPage from "@src/demo-ai-app/DemoAppPage"
-}
-
-action generateGptResponse {
-  fn: import { generateGptResponse } from "@src/demo-ai-app/operations",
-  entities: [User, Task, GptResponse]
-}
-
-action createTask {
-  fn: import { createTask } from "@src/demo-ai-app/operations",
-  entities: [Task]
-}
-
-action deleteTask {
-  fn: import { deleteTask } from "@src/demo-ai-app/operations",
-  entities: [Task]
-}
-
-action updateTask {
-  fn: import { updateTask } from "@src/demo-ai-app/operations",
-  entities: [Task]
-}
-
-query getGptResponses {
-  fn: import { getGptResponses } from "@src/demo-ai-app/operations",
-  entities: [User, GptResponse]
-}
-
-query getAllTasksByUser {
-  fn: import { getAllTasksByUser } from "@src/demo-ai-app/operations",
-  entities: [Task]
+job deleteOldGeneratedImagesJob {
+  executor: PgBoss,
+  perform: {
+    fn: import { deleteOldGeneratedImagesWorker } from "@src/server/worker/deleteOldGeneratedImagesWorker"
+  },
+  schedule: {
+    cron: "0 * * * *"
+  },
+  entities: [User, GeneratedImageData]
 }
 //#endregion
 
@@ -334,12 +301,6 @@ api paymentsWebhook {
 //#endregion
 
 //#region File Upload
-route FileUploadRoute { path: "/file-upload", to: FileUploadPage }
-page FileUploadPage {
-  authRequired: true,
-  component: import FileUpload from "@src/file-upload/FileUploadPage"
-}
-
 action createFile {
   fn: import { createFile } from "@src/file-upload/operations",
   entities: [User, File]
@@ -444,18 +405,5 @@ route AdminMessagesRoute { path: "/admin/messages", to: AdminMessagesPage }
 page AdminMessagesPage {
   authRequired: true,
   component: import AdminMessages from "@src/messages/MessagesPage"
-}
-//#endregion
-
-//#region Newsletter
-job sendNewsletter {
-  executor: PgBoss,
-  perform: {
-    fn: import { checkAndQueueNewsletterEmails } from "@src/newsletter/sendNewsletter"
-  },
-  schedule: {
-    cron: "0 7 * * 1" // at 7:00 am every Monday
-  },
-  entities: [User]
 }
 //#endregion

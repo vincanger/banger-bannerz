@@ -9,7 +9,6 @@ import { HiBars3 } from 'react-icons/hi2';
 import logo from '../../static/logo.webp';
 import DropdownUser from '../../../user/DropdownUser';
 import { UserMenuItems } from '../../../user/UserMenuItems';
-import DarkModeSwitcher from '../DarkModeSwitcher';
 import { useIsLandingPage } from '../../hooks/useIsLandingPage';
 import { cn } from '../../cn';
 
@@ -28,37 +27,25 @@ export default function AppNavBar({ navigationItems }: { navigationItems: Naviga
   return (
     <header
       className={cn('absolute inset-x-0 top-0 z-50 dark:bg-boxdark-2', {
-        'shadow sticky bg-white bg-opacity-50 backdrop-blur-lg backdrop-filter dark:border dark:border-gray-100/10':
-          !isLandingPage,
+        'shadow sticky bg-white bg-opacity-50 backdrop-blur-lg backdrop-filter dark:border dark:border-gray-100/10': !isLandingPage,
       })}
     >
-      <nav className='flex items-center justify-between p-6 lg:px-8' aria-label='Global'>
+      <nav className='flex items-center justify-between p-5 lg:px-8' aria-label='Global'>
         <div className='flex items-center lg:flex-1'>
-          <WaspRouterLink
-            to={routes.LandingPageRoute.to}
-            className='flex items-center -m-1.5 p-1.5 text-gray-900 duration-300 ease-in-out hover:text-yellow-500'
-          >
+          <WaspRouterLink to={routes.GenerateImagePromptRoute.to} className='flex items-center -m-1.5 text-gray-900 duration-300 ease-in-out hover:text-yellow-500'>
             <NavLogo />
-            {isLandingPage && (
-              <span className='ml-2 text-sm font-semibold leading-6 dark:text-white'>Your Saas</span>
-            )}
+
+            <span className='ml-2 text-sm font-semibold leading-6 dark:text-white'>Banger Bannerz</span>
           </WaspRouterLink>
         </div>
         <div className='flex lg:hidden'>
-          <button
-            type='button'
-            className='-m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700 dark:text-white'
-            onClick={() => setMobileMenuOpen(true)}
-          >
+          <button type='button' className='-m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700 dark:text-white' onClick={() => setMobileMenuOpen(true)}>
             <span className='sr-only'>Open main menu</span>
             <HiBars3 className='h-6 w-6' aria-hidden='true' />
           </button>
         </div>
-        <div className='hidden lg:flex lg:gap-x-12'>{renderNavigationItems(navigationItems)}</div>
+        {/* <div className='hidden lg:flex lg:gap-x-12'>{renderNavigationItems(navigationItems)}</div> */}
         <div className='hidden lg:flex lg:flex-1 gap-3 justify-end items-center'>
-          <ul className='flex justify-center items-center gap-2 sm:gap-4'>
-            <DarkModeSwitcher />
-          </ul>
           {isUserLoading ? null : !user ? (
             <WaspRouterLink to={routes.LoginRoute.to} className='text-sm font-semibold leading-6 ml-3'>
               <div className='flex items-center duration-300 ease-in-out text-gray-900 hover:text-yellow-500 dark:text-white'>
@@ -76,15 +63,11 @@ export default function AppNavBar({ navigationItems }: { navigationItems: Naviga
         <div className='fixed inset-0 z-50' />
         <Dialog.Panel className='fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white dark:text-white dark:bg-boxdark px-6 py-6 sm:max-w-sm sm:ring-1 sm:ring-gray-900/10'>
           <div className='flex items-center justify-between'>
-            <WaspRouterLink to={routes.LandingPageRoute.to} className='-m-1.5 p-1.5'>
+            <WaspRouterLink to={routes.GenerateImagePromptRoute.to} className='-m-1.5 p-1.5'>
               <span className='sr-only'>Your SaaS</span>
               <NavLogo />
             </WaspRouterLink>
-            <button
-              type='button'
-              className='-m-2.5 rounded-md p-2.5 text-gray-700 dark:text-gray-50'
-              onClick={() => setMobileMenuOpen(false)}
-            >
+            <button type='button' className='-m-2.5 rounded-md p-2.5 text-gray-700 dark:text-gray-50' onClick={() => setMobileMenuOpen(false)}>
               <span className='sr-only'>Close menu</span>
               <AiFillCloseCircle className='h-6 w-6' aria-hidden='true' />
             </button>
@@ -103,9 +86,6 @@ export default function AppNavBar({ navigationItems }: { navigationItems: Naviga
                   <UserMenuItems user={user} setMobileMenuOpen={setMobileMenuOpen} />
                 )}
               </div>
-              <div className='py-6'>
-                <DarkModeSwitcher />
-              </div>
             </div>
           </div>
         </Dialog.Panel>
@@ -114,25 +94,15 @@ export default function AppNavBar({ navigationItems }: { navigationItems: Naviga
   );
 }
 
-function renderNavigationItems(
-  navigationItems: NavigationItem[],
-  setMobileMenuOpen?: Dispatch<SetStateAction<boolean>>
-) {
+function renderNavigationItems(navigationItems: NavigationItem[], setMobileMenuOpen?: Dispatch<SetStateAction<boolean>>) {
   const menuStyles = cn({
-    '-mx-3 block rounded-lg px-3 py-2 text-base font-semibold leading-7 text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-boxdark-2':
-      !!setMobileMenuOpen,
-    'text-sm font-semibold leading-6 text-gray-900 duration-300 ease-in-out hover:text-yellow-500 dark:text-white':
-      !setMobileMenuOpen,
+    '-mx-3 block rounded-lg px-3 py-2 text-base font-semibold leading-7 text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-boxdark-2': !!setMobileMenuOpen,
+    'text-sm font-semibold leading-6 text-gray-900 duration-300 ease-in-out hover:text-yellow-500 dark:text-white': !setMobileMenuOpen,
   });
 
   return navigationItems.map((item) => {
     return (
-      <ReactRouterLink
-        to={item.to}
-        key={item.name}
-        className={menuStyles}
-        onClick={setMobileMenuOpen && (() => setMobileMenuOpen(false))}
-      >
+      <ReactRouterLink to={item.to} key={item.name} className={menuStyles} onClick={setMobileMenuOpen && (() => setMobileMenuOpen(false))}>
         {item.name}
       </ReactRouterLink>
     );

@@ -51,7 +51,7 @@ export async function seedTemplates(prismaClient: PrismaClient) {
       exampleImagePrompt:
         'a cartoon depiction of a man with a beard and mustache is seen eating a hamburger. The mans face is white, with brown hair, and his eyes are closed. His hands are positioned on either side of the hamburger, and he is wearing a light blue long-sleeved shirt. The hamburger is adorned with a variety of toppings, including hamburgers, cheese, and tomatoes. The background is a pale yellow, and the mans arms are positioned in front of him, adding a pop of color to the composition.',
       exampleImageUrl: 'https://cdn-uploads.huggingface.co/production/uploads/65bb837dbfb878f46c77de4c/LgHJ0QJxTEC-RNAMaystb.png',
-      loraUrl: 'https://huggingface.co/strangerzonehf/Flux-Cardboard-Art-LoRA',
+      loraUrl: 'https://huggingface.co/strangerzonehf/Flux-Cardboard-Art-LoRA/resolve/main/cardboard%23%20art.safetensors',
       loraTriggerWord: 'cardboard# art',
       basePrompt: '',
       prefix: '',
@@ -87,7 +87,7 @@ export async function seedTemplates(prismaClient: PrismaClient) {
       exampleImagePrompt:
         'An eye-level view of a vibrant orange jack-o-lantern against a backdrop of a deep blue sky. The pumpkins face is angled towards the left, with a black outline around it. The eyes are squinted with white lines, creating a striking contrast with the orange and yellow of the pumpkin. The orange is adorned with black lines, adding a pop of color to the scene.',
       exampleImageUrl: 'https://cdn-uploads.huggingface.co/production/uploads/65bb837dbfb878f46c77de4c/G_QXbbtYT1YFflykerj-m.png',
-      loraUrl: 'huggingface.co/strangerzonehf/Flux-Icon-Art-LoRA',
+      loraUrl: 'huggingface.co/strangerzonehf/Flux-Icon-Kit-LoRA',
       loraTriggerWord: 'Icon Kit',
       basePrompt: '',
       prefix: '',

@@ -11,6 +11,7 @@ import { FabricImage } from 'fabric';
 import debounce from 'lodash/debounce';
 import { cn } from '../../client/cn';
 import Editor from '../Editor';
+import { useNavigate } from 'react-router-dom';
 import { ImageGrid } from './ImageGrid';
 
 const getDarkestColor = (colors: string[]): string => {
@@ -54,11 +55,12 @@ export const ImageOverlay: FC = () => {
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [selectedObject, setSelectedObject] = useState<SelectedObject>({ type: null, object: null });
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const isMouseDownRef = useRef(false);
 
-  const { data: imageData, isLoading: imageDataLoading, error: imageDataError } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id });
-  const { data: recentImages, isLoading: recentImagesLoading, error: recentImagesError } = useQuery(getRecentGeneratedImageData);
-  const { data: proxiedImageUrl, isLoading: proxyLoading, error: proxyError } = useQuery(getImageProxy, { url: imageData?.url || '' }, { enabled: !!imageData?.url });
+  const { data: imageData, isLoading: imageDataLoading, error: imageDataError } = useQuery(getGeneratedImageDataById, { id: id as string }, { enabled: !!id && !isModalOpen });
+  const { data: recentImages, isLoading: recentImagesLoading, error: recentImagesError } = useQuery(getRecentGeneratedImageData, undefined, { enabled: !id});
+  const { data: proxiedImageUrl, isLoading: proxyLoading, error: proxyError } = useQuery(getImageProxy, { url: imageData?.url || '' }, { enabled: !!imageData?.url && !isModalOpen });
 
   const { data: brandThemeSettings, isLoading: brandThemeSettingsLoading, error: brandThemeSettingsError } = useQuery(getBrandThemeSettings);
   const { data: proxiedLogoUrl, isLoading: proxyLogoLoading, error: proxyLogoError } = useQuery(getImageProxy, { url: brandThemeSettings?.logoUrl || '' }, { enabled: !!brandThemeSettings?.logoUrl });
@@ -66,6 +68,8 @@ export const ImageOverlay: FC = () => {
   const [darkOverlayColor, setDarkOverlayColor] = useState('#000000D9');
   const [whiteOverlayColor, setWhiteOverlayColor] = useState('#FFFFFF');
   const [isDarkInitialized, setIsDarkInitialized] = useState(false);
+
+  const navigate = useNavigate();
 
   const saveCanvasState = (fabricCanvas: fabric.Canvas) => {
     // Use toObject to include custom properties like 'name'
@@ -129,13 +133,7 @@ export const ImageOverlay: FC = () => {
 
   useEffect(() => {
     if (!canvasRef.current || !proxiedImageUrl || !imageData) return;
-    if (canvas) return; // Don't reinitialize the canvas if it already exists
 
-    // Calculate container width and initial scale
-    const containerWidth = canvasRef.current.parentElement?.clientWidth || TARGET_WIDTH;
-    const initialScale = Math.min(1, containerWidth / TARGET_WIDTH);
-
-    // Initialize Fabric canvas
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
       width: TARGET_WIDTH,
       height: TARGET_HEIGHT,
@@ -144,6 +142,21 @@ export const ImageOverlay: FC = () => {
       devicePixelRatio: 1,
       selection: true,
     });
+
+    const initialScale = 0.65;
+
+    // create a new event listener for resizing the canvas based on the window size. I always want the initial scale to be the largest possible scale that fits the window width.
+    const updateCanvasDimensions = () => {
+      const availableWidth = window.innerWidth;
+      let scale = availableWidth < TARGET_WIDTH ? availableWidth / TARGET_WIDTH : initialScale;
+      scale = Math.min(scale, initialScale);
+      fabricCanvas.setWidth(TARGET_WIDTH * scale);
+      fabricCanvas.setHeight(TARGET_HEIGHT * scale);
+      fabricCanvas.setZoom(scale);
+    };
+
+    updateCanvasDimensions();
+    window.addEventListener('resize', updateCanvasDimensions);
 
     // Add selection and event listeners
     fabricCanvas.on('selection:created', handleObjectSelection);
@@ -175,12 +188,6 @@ export const ImageOverlay: FC = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-
-    // Set display size and initial zoom
-    fabricCanvas.setWidth(TARGET_WIDTH * initialScale);
-    fabricCanvas.setHeight(TARGET_HEIGHT * initialScale);
-    fabricCanvas.setZoom(initialScale);
-    (fabricCanvas as any).initialScale = initialScale;
 
     // Mouse event handlers
     let isDragging = false;
@@ -375,10 +382,12 @@ export const ImageOverlay: FC = () => {
     });
 
     return () => {
+      window.removeEventListener('resize', updateCanvasDimensions);
       window.removeEventListener('keydown', handleKeyDown);
-      fabricCanvas.dispose();
       setCanvas(null);
+      fabricCanvas.dispose();
       setHistory([]);
+      setSelectedObject({ type: null, object: null });
       fabricCanvas.off('selection:created', handleObjectSelection);
       fabricCanvas.off('selection:updated', handleObjectSelection);
       fabricCanvas.off('selection:cleared');
@@ -594,7 +603,7 @@ export const ImageOverlay: FC = () => {
     reader.readAsDataURL(file);
   };
 
-  // Add this new useEffect after your other useEffects
+  // Handle click outside of the canvas to discard the active object
   useEffect(() => {
     if (!canvas || !canvasRef.current) return;
 
@@ -687,7 +696,10 @@ export const ImageOverlay: FC = () => {
   if (!id && !!recentImages) {
     return (
       <Editor>
-        <ImageGrid images={recentImages} />
+        <div className='p-4 flex flex-col items-center justify-center'>
+          <h1 className='text-2xl font-bold mb-4'>Select an image to edit</h1>
+          <ImageGrid images={recentImages} />
+        </div>
       </Editor>
     );
   }
@@ -718,11 +730,14 @@ export const ImageOverlay: FC = () => {
 
   return (
     <Editor>
-      <div className='flex h-screen max-w-[90%] mr-auto'>
+      <div className='flex h-screen'>
+        {/* Fixed-width sidebar */}
         <Sidebar handleImageUpload={handleImageUpload} debouncedHandleColorChange={debouncedHandleColorChange} brandThemeSettings={brandThemeSettings} sidebarRef={sidebarRef} selectedObject={selectedObject} />
 
-          <div className='w-full p-4'>
-            <div className='space-y-4 w-full'>
+        {/* Centered canvas container */}
+        <div className='flex-1 flex justify-center'>
+          <div className='p-4 w-fit'>
+            <div className='space-y-4'>
               <div className='flex flex-wrap justify-between gap-3 mb-4'>
                 <div ref={controlsRef}>
                   <FontControls />
@@ -731,14 +746,15 @@ export const ImageOverlay: FC = () => {
                   <ExportControls />
                 </div>
               </div>
-
+              {/* divider */}
+              <div className='h-px bg-gray-200' />
               <div className='shadow-lg border border-gray-300'>
                 <canvas ref={canvasRef} />
               </div>
             </div>
           </div>
         </div>
-
+      </div>
     </Editor>
   );
 };
@@ -789,7 +805,7 @@ export const Sidebar: FC<SidebarProps> = memo(({ handleImageUpload, debouncedHan
   });
 
   return (
-    <div ref={sidebarRef} className='w-100 bg-white border-r border-gray-200 p-4 shadow-lg overflow-y-auto'>
+    <div ref={sidebarRef} className='w-[250px] flex-none bg-white border-r border-gray-200 p-4 shadow-lg overflow-y-auto'>
       <h3 className='text-lg font-semibold mb-4'>Element Properties</h3>
 
       {selectedObject.type === 'logo' ? (
@@ -808,7 +824,7 @@ export const Sidebar: FC<SidebarProps> = memo(({ handleImageUpload, debouncedHan
                 type='file'
                 accept='image/*'
                 onChange={handleImageUpload}
-                className='block w-full text-sm text-gray-500
+                className='block text-sm text-gray-500
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-md file:border-0
                     file:text-sm file:font-medium
