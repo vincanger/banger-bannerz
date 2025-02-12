@@ -693,7 +693,7 @@ export const ImageOverlay: FC = () => {
     );
   };
 
-  if (!id && !!recentImages) {
+  if (!id && !!recentImages?.length) {
     return (
       <Editor>
         <div className='p-4 flex flex-col items-center justify-center'>
@@ -704,7 +704,7 @@ export const ImageOverlay: FC = () => {
     );
   }
 
-  if (imageDataLoading || proxyLoading) {
+  if ((imageDataLoading || proxyLoading) && id ) {
     return (
       <div className='flex items-center justify-center h-64'>
         <p className='text-gray-500'>Loading image...</p>
@@ -720,11 +720,13 @@ export const ImageOverlay: FC = () => {
     );
   }
 
-  if (!imageData || !proxiedImageUrl) {
+  if (!imageData || !proxiedImageUrl || !recentImages?.length) {
     return (
-      <div className='flex items-center justify-center h-64'>
-        <p className='text-gray-500'>No image found</p>
-      </div>
+      <Editor>
+        <div className='flex items-center justify-center h-64'>
+          <p className='text-gray-500'>No images found</p>
+        </div>
+      </Editor>
     );
   }
 

@@ -23,7 +23,9 @@ export const RecentGeneratedImages: FC = () => {
   if (!recentImages?.length) {
     return (
       <Editor>
-        <div className='p-4 text-gray-500 dark:text-gray-400'>No recent images found</div>
+        <div className='flex items-center justify-center h-64'>
+          <p className='text-gray-500'>No images found</p>
+        </div>
       </Editor>
     );
   }

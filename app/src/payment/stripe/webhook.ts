@@ -6,7 +6,6 @@ import { Stripe } from 'stripe';
 import { stripe } from './stripeClient';
 import { paymentPlans, PaymentPlanId, SubscriptionStatus } from '../plans';
 import { updateUserStripePaymentDetails } from './paymentDetails';
-import { emailSender } from 'wasp/server/email';
 import { assertUnreachable } from '../../shared/utils';
 import { requireNodeEnvVar } from '../../server/utils';
 import { z } from 'zod';
@@ -117,16 +116,7 @@ export async function handleCustomerSubscriptionUpdated(
   } 
   if (subscriptionStatus) {
     const user = await updateUserStripePaymentDetails({ userStripeId, subscriptionPlan, subscriptionStatus }, prismaUserDelegate);
-    if (subscription.cancel_at_period_end) {
-      if (user.email) {
-        await emailSender.send({
-          to: user.email,
-          subject: 'We hate to see you go :(',
-          text: 'We hate to see you go. Here is a sweet offer...',
-          html: 'We hate to see you go. Here is a sweet offer...',
-        });
-      }
-    }
+
     return user;
   }
 }
