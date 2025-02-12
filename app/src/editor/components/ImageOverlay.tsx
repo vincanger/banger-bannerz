@@ -254,11 +254,19 @@ export const ImageOverlay: FC = () => {
       });
       fabricCanvas.add(whiteOverlay);
 
+      let ogImgTitle = 'Add your text here';
+      if (imageData.postTopic?.length) {
+        if (imageData.postTopic.length > 50) {
+          ogImgTitle = imageData.postTopic.slice(0, 50).concat('...');
+        } else {
+          ogImgTitle = imageData.postTopic;
+        }
+      }
       // Add text
       const textColor = '#000000';
       const fontSize = 54;
       const fontFamily = 'Noto Sans';
-      const text = imageData.postTopic || 'Add your text here';
+      const text = ogImgTitle;
       const textPadding = padding + 40;
       const maxWidth = overlayWidth + padding - textPadding;
 
@@ -282,16 +290,17 @@ export const ImageOverlay: FC = () => {
       lines.push(currentLine);
 
       // Create a single text block with line breaks
+      const lineHeight = 1.25;
       const textContent = lines.join('\n');
       const textBlock = new fabric.Textbox(textContent, {
         left: textPadding,
-        top: (TARGET_HEIGHT - lines.length * fontSize * 1.25) / 2 - 40,
+        top: (TARGET_HEIGHT - lines.length * fontSize * lineHeight) / 2 - textPadding,
         width: maxWidth,
         fill: textColor,
         fontSize: fontSize,
         fontFamily: fontFamily,
         fontWeight: 'bold',
-        lineHeight: 1.25,
+        lineHeight: lineHeight,
         selectable: true,
         hasControls: true,
         splitByGrapheme: false,
@@ -565,7 +574,7 @@ export const ImageOverlay: FC = () => {
       const dataUrl = e.target?.result as string;
 
       // Find and remove the existing circle logo
-      const existingLogo = canvas.getObjects().find((obj) => obj.type === 'circle') as fabric.Circle | undefined;
+      const existingLogo = canvas.getObjects().find((obj) => (obj as any).name === 'logo' || obj.type === 'circle') as fabric.Circle | undefined;
       if (existingLogo) {
         const { left, top } = existingLogo;
         canvas.remove(existingLogo);
@@ -573,13 +582,13 @@ export const ImageOverlay: FC = () => {
         // Create a new image object
         const imgElement = new Image();
         imgElement.src = dataUrl;
-        imgElement.crossOrigin = 'Anonymous';
         imgElement.onload = () => {
           const fabricImage = new fabric.Image(imgElement);
 
           // Create a circular clipPath with desired radius
+          const shorterSide = Math.min(imgElement.width, imgElement.height);
           const clipPath = new fabric.Circle({
-            radius: imgElement.width / 2,
+            radius: shorterSide / 2,
             originX: 'center',
             originY: 'center',
           });
@@ -770,6 +779,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: FC<SidebarProps> = memo(({ handleImageUpload, debouncedHandleColorChange, brandThemeSettings, sidebarRef, selectedObject }) => {
+  
   const getColorLabel = () => {
     if (selectedObject.type === 'group') {
       return 'Multiple Items Selected';
