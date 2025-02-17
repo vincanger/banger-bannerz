@@ -48,7 +48,7 @@ const DropdownUser = ({ user }: { user: Partial<User> }) => {
       <div
         ref={dropdown}
         className={cn(
-          'absolute right-0 bottom-full mb-8 flex w-62.5 flex-col rounded-xl border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark dark:text-white',
+          'absolute left-0 z-50 bottom-full mb-4 flex w-62.5 flex-col rounded-lg border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark dark:text-white',
           {
             hidden: !dropdownOpen,
           }

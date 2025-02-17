@@ -1,6 +1,6 @@
 import type { FC } from 'react';
 import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
-import type { GeneratedImageDataWithTemplate } from './GenerateImagePrompt';
+import type { GeneratedImageDataWithTemplate } from './GenerateImagePage';
 
 import { useEffect, useState, useRef } from 'react';
 import * as fabric from 'fabric';

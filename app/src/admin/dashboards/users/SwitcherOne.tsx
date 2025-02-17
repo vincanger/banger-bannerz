@@ -2,7 +2,7 @@ import { type User } from 'wasp/entities';
 import { useState } from 'react';
 import { cn } from '../../../client/cn';
 
-const SwitcherOne = ({ user, updateUserById }: { user?: Partial<User>; updateUserById?: any }) => {
+const SwitcherOne = ({ user, updateUserIsAdminById }: { user?: Partial<User>; updateUserIsAdminById?: any }) => {
   const [enabled, setEnabled] = useState<boolean>(user?.isAdmin || false);
 
   return (
@@ -15,7 +15,7 @@ const SwitcherOne = ({ user, updateUserById }: { user?: Partial<User>; updateUse
             className='sr-only'
             onChange={() => {
               setEnabled(!enabled);
-              updateUserById && updateUserById({ id: user?.id, data: { isAdmin: !enabled } });
+              updateUserIsAdminById && updateUserIsAdminById({ id: user?.id, isAdmin: !enabled });
             }}
           />
           <div className='reblock h-8 w-14 rounded-full bg-meta-9 dark:bg-[#5A616B]'></div>

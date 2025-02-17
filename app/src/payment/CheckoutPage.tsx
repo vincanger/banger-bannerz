@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { routes } from 'wasp/client/router';
 
 export default function CheckoutPage() {
   const [paymentStatus, setPaymentStatus] = useState('loading');
@@ -10,7 +11,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     function delayedRedirect() {
       return setTimeout(() => {
-        navigate('/account');
+        navigate(routes.GenerateImageRoute.to);
       }, 4000);
     }
 
@@ -23,7 +24,7 @@ export default function CheckoutPage() {
     } else if (isSuccess) {
       setPaymentStatus('paid');
     } else {
-      navigate('/account');
+      navigate(routes.GenerateImageRoute.to);
     }
     delayedRedirect();
     return () => {

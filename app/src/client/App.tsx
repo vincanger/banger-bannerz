@@ -10,11 +10,12 @@ import { routes } from 'wasp/client/router';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from 'wasp/client/auth';
 import { useIsLandingPage } from './hooks/useIsLandingPage';
-import { updateCurrentUser } from 'wasp/client/operations';
+import { updateCurrentUserLastActiveTimestamp } from 'wasp/client/operations';
 import { Toaster } from 'react-hot-toast';
 import { BiLogIn } from 'react-icons/bi';
 import { Link as WaspRouterLink } from 'wasp/client/router';
 import DropdownUser from '../user/DropdownUser';
+import AppNavBar from './components/NavBar/NavBar';
 
 /**
  * use this component to wrap all child components
@@ -39,7 +40,7 @@ export default function App() {
       const lastSeenAt = new Date(user.lastActiveTimestamp);
       const today = new Date();
       if (today.getTime() - lastSeenAt.getTime() > 5 * 60 * 1000) {
-        updateCurrentUser({ lastActiveTimestamp: today });
+        updateCurrentUserLastActiveTimestamp(); // <- no args needed
       }
     }
   }, [user]);
@@ -63,12 +64,11 @@ export default function App() {
           <>
             <div>
               <Outlet />
+              <FloatingUserMenu isUserLoading={isUserLoading} user={user} />
             </div>
           </>
         )}
       </div>
-      <CookieConsentBanner />
-      <FloatingUserMenu isUserLoading={isUserLoading} user={user} />
       <Toaster position='bottom-center' />
     </>
   );
@@ -76,7 +76,7 @@ export default function App() {
 
 const FloatingUserMenu = ({ isUserLoading, user }: { isUserLoading: boolean; user?: AuthUser | null }) => {
   return (
-    <div className='fixed bottom-4 right-4 z-50'>
+    <div className='fixed bottom-4 left-4 z-50'>
       {isUserLoading ? null : !user ? (
         <WaspRouterLink to={routes.LoginRoute.to}>
           <div className='w-14 h-14 flex items-center justify-center bg-yellow-500 rounded-full shadow-lg hover:bg-yellow-600'>

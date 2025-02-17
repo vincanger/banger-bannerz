@@ -43,6 +43,11 @@ export async function createStripeCheckoutSession({ userId, priceId, customerId,
       customer_update: {
         address: 'auto',
       },
+      payment_intent_data: {
+        metadata: {
+          priceId,
+        },
+      },
       customer: customerId,
     });
   } catch (error) {

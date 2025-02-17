@@ -1,35 +1,26 @@
-import {
-  type UpdateCurrentUser,
-  type UpdateUserById,
-  type GetPaginatedUsers,
-} from 'wasp/server/operations';
+import type { UpdateCurrentUserLastActiveTimestamp, UpdateUserIsAdminById, GetPaginatedUsers } from 'wasp/server/operations';
 import { type User } from 'wasp/entities';
 import { HttpError } from 'wasp/server';
 import { type SubscriptionStatus } from '../payment/plans';
 
-export const updateUserById: UpdateUserById<{ id: string; data: Partial<User> }, User> = async (
-  { id, data },
-  context
-) => {
+export const updateUserIsAdminById: UpdateUserIsAdminById<{ id: User['id'], isAdmin: User['isAdmin'] }, User> = async ({ id, isAdmin }, context) => {
   if (!context.user) {
-    throw new HttpError(401);
+		throw new HttpError(401);
   }
-
   if (!context.user.isAdmin) {
-    throw new HttpError(403);
+		throw new HttpError(403);
+  }
+  if (!id || isAdmin === undefined) {
+		throw new HttpError(400);
   }
 
-  const updatedUser = await context.entities.User.update({
-    where: {
-      id,
-    },
-    data,
+  return context.entities.User.update({
+		where: { id },
+		data: { isAdmin },
   });
-
-  return updatedUser;
 };
 
-export const updateCurrentUser: UpdateCurrentUser<Partial<User>, User> = async (user, context) => {
+export const updateCurrentUserLastActiveTimestamp: UpdateCurrentUserLastActiveTimestamp<void, User> = async (_args, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -38,7 +29,9 @@ export const updateCurrentUser: UpdateCurrentUser<Partial<User>, User> = async (
     where: {
       id: context.user.id,
     },
-    data: user,
+    data: {
+      lastActiveTimestamp: new Date(),
+    },
   });
 };
 
@@ -54,17 +47,14 @@ type GetPaginatedUsersOutput = {
   totalPages: number;
 };
 
-export const getPaginatedUsers: GetPaginatedUsers<GetPaginatedUsersInput, GetPaginatedUsersOutput> = async (
-  args,
-  context
-) => {
+export const getPaginatedUsers: GetPaginatedUsers<GetPaginatedUsersInput, GetPaginatedUsersOutput> = async (args, context) => {
   if (!context.user?.isAdmin) {
     throw new HttpError(401);
   }
 
   const allSubscriptionStatusOptions = args.subscriptionStatus as Array<string | null> | undefined;
-  const hasNotSubscribed = allSubscriptionStatusOptions?.find((status) => status === null) 
-  let subscriptionStatusStrings = allSubscriptionStatusOptions?.filter((status) => status !== null) as string[] | undefined
+  const hasNotSubscribed = allSubscriptionStatusOptions?.find((status) => status === null);
+  let subscriptionStatusStrings = allSubscriptionStatusOptions?.filter((status) => status !== null) as string[] | undefined;
 
   const queryResults = await context.entities.User.findMany({
     skip: args.skip,

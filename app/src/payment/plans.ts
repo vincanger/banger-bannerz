@@ -3,9 +3,9 @@ import { requireNodeEnvVar } from '../server/utils';
 export type SubscriptionStatus = 'past_due' | 'cancel_at_period_end' | 'active' | 'deleted';
 
 export enum PaymentPlanId {
-  Hobby = 'hobby',
-  Pro = 'pro',
-  Credits10 = 'credits10',
+  Credits30 = 'credits30',
+  Credits300 = 'credits300',
+  Credits100 = 'credits100',
 }
 
 export interface PaymentPlan {
@@ -15,28 +15,28 @@ export interface PaymentPlan {
   effect: PaymentPlanEffect;
 }
 
-export type PaymentPlanEffect = { kind: 'subscription' } | { kind: 'credits'; amount: number };
+export type PaymentPlanEffect = { kind: 'credits'; amount: number };
 
 export const paymentPlans: Record<PaymentPlanId, PaymentPlan> = {
-  [PaymentPlanId.Hobby]: {
-    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_HOBBY_SUBSCRIPTION_PLAN_ID'),
-    effect: { kind: 'subscription' },
+  [PaymentPlanId.Credits30]: {
+    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_CREDITS_30_PLAN_ID'),
+    effect: { kind: 'credits', amount: 30 },
   },
-  [PaymentPlanId.Pro]: {
-    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_PRO_SUBSCRIPTION_PLAN_ID'),
-    effect: { kind: 'subscription' },
+  [PaymentPlanId.Credits100]: {
+    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_CREDITS_100_PLAN_ID'),
+    effect: { kind: 'credits', amount: 100 },
   },
-  [PaymentPlanId.Credits10]: {
-    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_CREDITS_10_PLAN_ID'),
-    effect: { kind: 'credits', amount: 10 },
+  [PaymentPlanId.Credits300]: {
+    getPaymentProcessorPlanId: () => requireNodeEnvVar('PAYMENTS_CREDITS_300_PLAN_ID'),
+    effect: { kind: 'credits', amount: 300 },
   },
 };
 
 export function prettyPaymentPlanName(planId: PaymentPlanId): string {
   const planToName: Record<PaymentPlanId, string> = {
-    [PaymentPlanId.Hobby]: 'Hobby',
-    [PaymentPlanId.Pro]: 'Pro',
-    [PaymentPlanId.Credits10]: '10 Credits',
+    [PaymentPlanId.Credits30]: '30 Image Credits',
+    [PaymentPlanId.Credits100]: '100 Image Credits',
+    [PaymentPlanId.Credits300]: '300 Image Credits',
   };
   return planToName[planId];
 }
@@ -50,5 +50,5 @@ export function parsePaymentPlanId(planId: string): PaymentPlanId {
 }
 
 export function getSubscriptionPaymentPlanIds(): PaymentPlanId[] {
-  return Object.values(PaymentPlanId).filter((planId) => paymentPlans[planId].effect.kind === 'subscription');
+  return Object.values(PaymentPlanId);
 }

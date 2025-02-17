@@ -1,13 +1,15 @@
 import type { FC, ReactNode } from 'react';
 import type { ImageTemplate } from 'wasp/entities';
-import type { Routes } from 'wasp/client/router';
 
 import { FaImage, FaMagic, FaPalette, FaEdit, FaCheck } from 'react-icons/fa';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import SidebarItem from './components/SidebarItem';
 import { getImageTemplates, useQuery } from 'wasp/client/operations';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { routes } from 'wasp/client/router';
+import { routes, Link as WaspRouterLink } from 'wasp/client/router';
+import DropdownUser from '../user/DropdownUser';
+import { useAuth } from 'wasp/client/auth';
+import { BiLogIn } from 'react-icons/bi';
 
 interface EditorProps {
   children: ReactNode;
@@ -15,18 +17,14 @@ interface EditorProps {
 
 const Editor: FC<EditorProps> = ({ children }) => {
   const [templates, setTemplates] = useState<ImageTemplate[]>([]);
+  const { data: user, isLoading: isUserLoading } = useAuth();
 
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const imageTemplateId = searchParams.get('imageTemplateId');
 
-
-  // Get the current path
-  const currentPath = location.pathname.split('/')[1];
-  console.log('currentPath', location.pathname);
-
-  const isGenerateImagePath = location.pathname === routes.GenerateImagePromptRoute.to
+  const isGenerateImagePath = useMemo(() => location.pathname === routes.GenerateImageRoute.to, [location.pathname]);
 
   const { data: imageTemplates, error: imageTemplatesError } = useQuery(getImageTemplates, undefined, { enabled: isGenerateImagePath });
 
@@ -49,12 +47,17 @@ const Editor: FC<EditorProps> = ({ children }) => {
   return (
     <div className='flex bg-gray-100'>
       {/* Left Sidebar */}
-      <div className={`min-h-screen flex relative bg-white shadow-lg transition-all duration-300`}>
+      <div className={`min-h-screen flex flex-col relative bg-white shadow-lg transition-all duration-300`}>
         <div className='h-full overflow-y-auto m-2'>
-          <SidebarItem title='Create Image' isActive={location.pathname === routes.GenerateImagePromptRoute.to} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.GenerateImagePromptRoute.to)} />
-          <SidebarItem title='Create OG Image' isActive={location.pathname.includes(routes.ImageOverlayRoute.to)} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.ImageOverlayRoute.to)} />
-          <SidebarItem title='Recent Images' isActive={location.pathname.includes(routes.RecentGeneratedImagesRoute.to)} icon={<FaImage className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.RecentGeneratedImagesRoute.to)} />
-          <SidebarItem title='Brand' isActive={location.pathname.includes(routes.BrandRoute.to)} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.BrandRoute.to)} />
+          <SidebarItem title='Create Image' isActive={location.pathname === routes.GenerateImageRoute.to} icon={<FaMagic className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.GenerateImageRoute.to)} />
+          {/* <SidebarItem title='Create OG Image' isActive={location.pathname.includes(routes.ImageOverlayRoute.to)} icon={<FaEdit className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.ImageOverlayRoute.to)} /> */}
+          <SidebarItem
+            title='Image Library'
+            isActive={location.pathname.includes(routes.ImageLibraryRoute.to)}
+            icon={<FaImage className='h-4 w-4 text-gray-500' />}
+            onClick={() => navigate(routes.ImageLibraryRoute.to)}
+          />
+          <SidebarItem title='Brand Settings' isActive={location.pathname.includes(routes.BrandRoute.to)} icon={<FaPalette className='h-4 w-4 text-gray-500' />} onClick={() => navigate(routes.BrandRoute.to)} />
         </div>
       </div>
 

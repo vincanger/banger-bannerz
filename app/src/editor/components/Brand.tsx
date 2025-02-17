@@ -21,7 +21,7 @@ export const Brand: FC = () => {
           <div className='animate-spin rounded-full h-8 w-8 border-2 border-yellow-500 border-t-transparent'></div>
         </div>
       ) : (
-        <div className='m-8 xl:w-1/2 2xl:w-[65%]'>
+        <div className='flex flex-col gap-2 justify-center items-start mx-auto m-8 xl:w-1/2 2xl:w-[65%]'>
           <BrandLogo />
           <ColorPicker />
           <ThemeSettings onSubmit={(data) => console.log('Theme settings:', data)} />

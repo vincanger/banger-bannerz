@@ -33,7 +33,7 @@ export const Modal: FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
         </div>
         
         {/* Body */}
-        <div className="p-4 max-h-[80vh] overflow-y-auto">
+        <div className="p-4 max-h-[90vh] overflow-y-auto">
           {children}
         </div>
       </div>

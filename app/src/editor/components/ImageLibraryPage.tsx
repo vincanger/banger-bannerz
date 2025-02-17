@@ -5,7 +5,7 @@ import { getRecentGeneratedImageData } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
 import Editor from '../Editor';
 
-export const RecentGeneratedImages: FC = () => {
+export const ImageLibraryPage: FC = () => {
   const { data: recentImages, isLoading, error } = useQuery(getRecentGeneratedImageData);
 
   if (isLoading) {

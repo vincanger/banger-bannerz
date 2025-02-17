@@ -39,7 +39,7 @@ export const stripePaymentProcessor: PaymentProcessor = {
 
 function paymentPlanEffectToStripeMode(planEffect: PaymentPlanEffect): StripeMode {
   const effectToMode: Record<PaymentPlanEffect['kind'], StripeMode> = {
-    subscription: 'subscription',
+    // subscription: 'subscription',
     credits: 'payment',
   };
   return effectToMode[planEffect.kind];

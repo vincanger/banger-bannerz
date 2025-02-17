@@ -1,15 +1,27 @@
 import type { FC } from 'react';
 import type { FluxDevAspectRatio } from '../../banner/imageSettings';
+import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
+import type { VisualElementPromptIdea } from '../../banner/operations';
 
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
-import { generatePromptFromTitle, useQuery, getGeneratedImageDataById, generateBannerFromTemplate, getBrandThemeSettings, getImageTemplateById, getRecentGeneratedImageData } from 'wasp/client/operations';
-import { GeneratedImageData, ImageTemplate } from 'wasp/entities';
+import {
+  generatePromptFromTitle,
+  getBannerIdeasFromTitle,
+  useQuery,
+  getGeneratedImageDataById,
+  generateBannerFromTemplate,
+  getBrandThemeSettings,
+  getImageTemplateById,
+  getRecentGeneratedImageData,
+  generateAndRefinePrompts,
+  generateAdditionalVisualElements,
+} from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
 import { Modal } from './Modal';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { FaEdit, FaHandSparkles, FaQuestionCircle, FaPalette, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight } from 'react-icons/fa';
+import { FaEdit, FaHandSparkles, FaQuestionCircle, FaPalette, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight, FaSpinner, FaLightbulb } from 'react-icons/fa';
 import { cn } from '../../client/cn';
 import { Menu } from '@headlessui/react';
 import { routes } from 'wasp/client/router';
@@ -23,7 +35,21 @@ export interface GeneratedImageDataWithTemplate extends GeneratedImageData {
   imageTemplate: ImageTemplate | null;
 }
 
-export const GenerateImagePrompt: FC = () => {
+class ClientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClientError';
+  }
+}
+
+const CLIENT_ERRORS = {
+  NO_USER: 'Please login to generate images',
+  NO_IMAGE_TEMPLATE: 'Please choose an image style',
+  NO_POST_TOPIC: 'Please enter a post topic',
+  NO_CREDITS: 'Please buy more credits to generate images',
+} as const;
+
+export const GenerateImagePage: FC = () => {
   const { data: user, isLoading: userLoading, error: userError } = useAuth();
 
   const [postTopic, setPostTopic] = useState('');
@@ -33,9 +59,19 @@ export const GenerateImagePrompt: FC = () => {
   const [userPrompt, setUserPrompt] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [numOutputs, setNumOutputs] = useState(3);
+  const [postMainIdeas, setPostMainIdeas] = useState('');
+  const [visualElementPromptIdeas, setVisualElementPromptIdeas] = useState<VisualElementPromptIdea[]>([]);
+  const [isVisualElementsModalOpen, setIsVisualElementsModalOpen] = useState(false);
+  const [discardedVisualElements, setDiscardedVisualElements] = useState<VisualElementPromptIdea[]>([]);
+  const [isGeneratingAdditionalVisualElements, setIsGeneratingAdditionalVisualElements] = useState(false);
+  const [lessSuitableImagePrompts, setLessSuitableImagePrompts] = useState<{ prompt: string }[]>([]);
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [currentKeywordInput, setCurrentKeywordInput] = useState('');
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<FluxDevAspectRatio>(PlatformAspectRatio['Twitter Landscape']);
   const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
+  const [isGeneratingMoreImages, setIsGeneratingMoreImages] = useState(false);
+  const [hasGeneratedAdditionalImages, setHasGeneratedAdditionalImages] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const generateImageBy = searchParams.get('generateBy') as GenerateImageSource;
@@ -46,6 +82,8 @@ export const GenerateImagePrompt: FC = () => {
   const { data: brandTheme } = useQuery(getBrandThemeSettings);
   const { data: selectedImageTemplate } = useQuery(getImageTemplateById, { id: imageTemplateId ?? '' }, { enabled: !!imageTemplateId });
   const { data: recentImages } = useQuery(getRecentGeneratedImageData, undefined, { enabled: !isModalOpen });
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (generateImageBy === 'prompt' && imageId) {
@@ -70,24 +108,94 @@ export const GenerateImagePrompt: FC = () => {
     });
   };
 
-  const handleGenerateImageFromTitle = async () => {
-    if (!user) toast.error('Please login to generate images');
+  useEffect(() => {
+    console.log('visualElementPromptIdeas: ', visualElementPromptIdeas);
+    console.log(
+      'accepted visualElementPromptIdeas: ',
+      visualElementPromptIdeas.filter((el) => el.isChecked)
+    );
+  }, [visualElementPromptIdeas]);
+
+  useEffect(() => {
+    console.log('discardedVisualElements: ', discardedVisualElements);
+  }, [discardedVisualElements]);
+
+  const doesUserHaveEnoughCredits = () => {
+    if (!user) {
+      return false;
+    }
+    return user.credits >= numOutputs;
+  };
+
+  const handleGenerateAndSetVisualElements = async () => {
+    if (!user) {
+      throw new ClientError(CLIENT_ERRORS.NO_USER);
+    }
     try {
       setIsGeneratingImages(true);
       if (!imageTemplateId || !selectedImageTemplate?.id) {
-        throw new Error('Image template is required');
+        throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
       }
 
-      const { promptArray } = await generatePromptFromTitle({
+      if (!doesUserHaveEnoughCredits()) {
+        throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
+      }
+
+      const { mainIdeas, visualElements } = await getBannerIdeasFromTitle({
         title: postTopic,
+        keywords,
+        imageTemplateId: selectedImageTemplate.id,
+        numOfVisualElementIdeas: 10,
+      });
+      setPostMainIdeas(mainIdeas);
+      setVisualElementPromptIdeas(visualElements);
+      setIsVisualElementsModalOpen(true);
+    } catch (error: any) {
+      if (error instanceof ClientError) {
+        toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_CREDITS) {
+          setTimeout(() => {
+            navigate(routes.PricingPageRoute.to);
+          }, 3000);
+        }
+      } else {
+        console.error('Unexpected error:', error);
+        toast.error('An unexpected error occurred');
+      }
+    } finally {
+      setIsGeneratingImages(false);
+    }
+  };
+
+  const handleGenerateAndSetImages = async () => {
+    if (!user) {
+      throw new ClientError(CLIENT_ERRORS.NO_USER);
+    }
+    try {
+      setIsGeneratingImages(true);
+      if (!imageTemplateId || !selectedImageTemplate?.id) {
+        throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
+      }
+
+      if (!doesUserHaveEnoughCredits()) {
+        throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
+      }
+
+      const { mostSuitablePromptsArray, lessSuitablePromptsArray } = await generateAndRefinePrompts({
+        title: postTopic,
+        keywords,
         isUsingBrandSettings,
         isUsingBrandColors,
         imageTemplateId: selectedImageTemplate.id,
         numOutputs,
+        mainIdeas: postMainIdeas,
+        visualElements: visualElementPromptIdeas.filter((el) => el.isChecked),
       });
 
+      setLessSuitableImagePrompts(lessSuitablePromptsArray);
+
       const allGeneratedImages = [];
-      for (const prompt of promptArray) {
+      for (const prompt of mostSuitablePromptsArray) {
         const generatedImage = await generateBannerFromTemplate({
           imageTemplateId: selectedImageTemplate.id,
           userPrompt: prompt.prompt,
@@ -98,17 +206,33 @@ export const GenerateImagePrompt: FC = () => {
         allGeneratedImages.push(...generatedImage);
         setGeneratedImages([...allGeneratedImages]); // Update state after each image
       }
-    } catch (error) {
-      console.error('Failed to generate prompt from title:', error);
+    } catch (error: any) {
+      if (error instanceof ClientError) {
+        toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_CREDITS) {
+          setTimeout(() => {
+            navigate(routes.PricingPageRoute.to);
+          }, 3000);
+        }
+      } else {
+        console.error('Unexpected error:', error);
+        toast.error('An unexpected error occurred');
+      }
     } finally {
       setIsGeneratingImages(false);
+      setHasGeneratedAdditionalImages(false);
     }
   };
 
   const handleGenerateImageFromPrompt = async () => {
-    if (!user) toast.error('Please login to generate images');
+    if (!user) {
+      throw new ClientError(CLIENT_ERRORS.NO_USER);
+    }
     if (!imageTemplateId || !selectedImageTemplate?.id) {
-      throw new Error('Image template ID is required');
+      throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
+    }
+    if (!doesUserHaveEnoughCredits()) {
+      throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
     }
     try {
       setIsGeneratingImages(true);
@@ -126,8 +250,62 @@ export const GenerateImagePrompt: FC = () => {
       setUserPrompt(generatedImages[0].userPrompt);
     } catch (error) {
       console.error('Failed to generate prompts:', error);
+      if (error instanceof ClientError) {
+        toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_CREDITS) {
+          setTimeout(() => {
+            navigate(routes.PricingPageRoute.to);
+          }, 3000);
+        }
+      } else {
+        console.error('Unexpected error:', error);
+        toast.error('An unexpected error occurred');
+      }
     } finally {
       setIsGeneratingImages(false);
+      setHasGeneratedAdditionalImages(false);
+    }
+  };
+
+  const handleGenerateMoreImages = async () => {
+    if (!user) {
+      throw new ClientError(CLIENT_ERRORS.NO_USER);
+    }
+    try {
+      setIsGeneratingMoreImages(true);
+
+      if (!doesUserHaveEnoughCredits()) {
+        throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
+      }
+      const allGeneratedImages = [...generatedImages];
+
+      for (const prompt of lessSuitableImagePrompts) {
+        const generatedImage = await generateBannerFromTemplate({
+          imageTemplateId: selectedImageTemplate!.id,
+          userPrompt: prompt.prompt,
+          numOutputs: 1,
+          postTopic,
+          aspectRatio: selectedAspectRatio,
+        });
+        allGeneratedImages.push(...generatedImage);
+        setGeneratedImages([...allGeneratedImages]); // Update state after each image
+      }
+      setHasGeneratedAdditionalImages(true);
+    } catch (error) {
+      if (error instanceof ClientError) {
+        toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_CREDITS) {
+          setTimeout(() => {
+            navigate(routes.PricingPageRoute.to);
+          }, 3000);
+        }
+      } else {
+        console.error('Failed to generate additional images:', error);
+        toast.error('An unexpected error occurred');
+      }
+    } finally {
+      setIsGeneratingMoreImages(false);
+      setHasGeneratedAdditionalImages(true);
     }
   };
 
@@ -189,6 +367,52 @@ export const GenerateImagePrompt: FC = () => {
                   />
                 </div>
 
+                <div className='flex flex-wrap items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600'>
+                  {keywords.map((keyword, index) => (
+                    <span key={index} className='flex items-center gap-2 px-3 mx-1 py-1 bg-gray-200 rounded-full text-sm'>
+                      {keyword}
+                      <button
+                        onClick={() => {
+                          const newKeywords = keywords.filter((_, i) => i !== index);
+                          setKeywords(newKeywords);
+                        }}
+                        className='hover:text-red-500'
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type='text'
+                    id='prompt-keywords'
+                    value={currentKeywordInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.endsWith(',')) {
+                        const newKeyword = value.slice(0, -1).trim();
+                        if (newKeyword) {
+                          setKeywords([...keywords, newKeyword]);
+                          setCurrentKeywordInput('');
+                        }
+                      } else {
+                        setCurrentKeywordInput(value);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && currentKeywordInput.trim()) {
+                        e.preventDefault();
+                        setKeywords([...keywords, currentKeywordInput.trim()]);
+                        setCurrentKeywordInput('');
+                      } else if (e.key === 'Backspace' && !currentKeywordInput && keywords.length > 0) {
+                        // Remove last pill when backspace is pressed and input is empty
+                        setKeywords(keywords.slice(0, -1));
+                      }
+                    }}
+                    className='flex-1 min-w-[120px] outline-none border-none focus:ring-yellow-500 rounded-md focus:ring-2'
+                    placeholder={keywords.length === 0 ? 'Enter keywords separated by commas' : ''}
+                  />
+                </div>
+
                 {/* Brand Settings Buttons with Dropdowns */}
                 <SettingsButtons
                   brandTheme={brandTheme}
@@ -208,7 +432,7 @@ export const GenerateImagePrompt: FC = () => {
                 <div></div>
 
                 {/* Generate Button */}
-                <LoadingButton onClick={handleGenerateImageFromTitle} disabled={!postTopic || !imageTemplateId} isLoading={isGeneratingImages} text='Generate Images' />
+                <LoadingButton onClick={handleGenerateAndSetVisualElements} disabled={!postTopic} isLoading={isGeneratingImages} text='Generate Images' />
               </div>
             </Tab.Panel>
 
@@ -270,12 +494,33 @@ export const GenerateImagePrompt: FC = () => {
         </div>
       </Tab.Group>
 
-      {/* Results Grid */}
+      {/* Results Grid with Generate More Button */}
       {generatedImages.length > 0 && (
         <div className='p-4'>
-          <p className='text-sm italic text-gray-600 mb-4'>
-            The generated images below are temporary and will be <b>deleted after 24 hours</b> if they are not saved.
-          </p>
+          <div className='flex items-center justify-between mb-4'>
+            <p className='text-sm italic text-gray-600'>
+              The images below are temporary and will be <b>deleted after 24 hours</b> if they are not added to your library.
+            </p>
+            {lessSuitableImagePrompts.length > 0 && generatedImages.length >= numOutputs && !hasGeneratedAdditionalImages && (
+              <button
+                onClick={handleGenerateMoreImages}
+                disabled={isGeneratingMoreImages}
+                className='flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-yellow-500 text-white hover:bg-yellow-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed'
+              >
+                {isGeneratingMoreImages ? (
+                  <>
+                    <FaSpinner className='h-4 w-4 animate-spin' />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <FaImages className='h-4 w-4' />
+                    <span>Generate More Images</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
           <ImageGrid images={generatedImages} />
         </div>
       )}
@@ -283,6 +528,128 @@ export const GenerateImagePrompt: FC = () => {
       {/* Modal for Recently Generated Images */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={'Recently Generated Images'}>
         {recentImages && <ImageGrid images={recentImages} />}
+      </Modal>
+
+      {/* Modal for Visual Element Prompt Ideas */}
+      <Modal isOpen={isVisualElementsModalOpen} onClose={() => setIsVisualElementsModalOpen(false)} title={'Visual Element Ideas'}>
+        <div className='flex flex-col gap-4'>
+          <div className='flex gap-4'>
+            <div className='flex-1 space-y-2'>
+              <div className='flex items-center justify-between'>
+                <h3 className='text-lg font-medium'>Proposed Ideas</h3>
+                <button
+                  onClick={async () => {
+                    if (!imageTemplateId || !selectedImageTemplate?.id) {
+                      throw new Error('Image template is required');
+                    }
+                    try {
+                      setIsGeneratingAdditionalVisualElements(true);
+                      const newlyDiscardedVisualElements = visualElementPromptIdeas.filter((el) => !el.isChecked);
+                      setDiscardedVisualElements((prev) => [...prev, ...newlyDiscardedVisualElements]);
+                      const { visualElements: additionalVisualElements } = await generateAdditionalVisualElements({
+                        visualElements: [...visualElementPromptIdeas, ...discardedVisualElements],
+                        imageTemplateId: selectedImageTemplate.id,
+                        title: postTopic,
+                        keywords,
+                      });
+                      const checkedVisualElements = visualElementPromptIdeas.filter((el) => el.isChecked);
+                      setVisualElementPromptIdeas([...checkedVisualElements, ...additionalVisualElements]);
+                    } catch (error) {
+                      console.error('Failed to generate additional visual elements:', error);
+                    } finally {
+                      setIsGeneratingAdditionalVisualElements(false);
+                    }
+                  }}
+                  disabled={isGeneratingAdditionalVisualElements}
+                  className='flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50'
+                >
+                  {isGeneratingAdditionalVisualElements ? <FaSpinner className='h-4 w-4 animate-spin' /> : <FaLightbulb className='h-4 w-4' />}
+                  <span>Get Different Ideas</span>
+                </button>
+              </div>
+              <div className='flex flex-wrap gap-3 p-4 dark:bg-gray-800 rounded-lg max-h-[600px] overflow-y-auto'>
+                <div className='flex flex-col w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-dashed border-yellow-500 dark:border-yellow-500'>
+                  <input
+                    type='text'
+                    placeholder='Add element...'
+                    className='w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-yellow-500 focus:outline-none'
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                        const newElement = {
+                          visualElement: e.currentTarget.value.trim(),
+                          isChecked: true,
+                          isUserSubmitted: true,
+                        };
+                        setVisualElementPromptIdeas((prev) => [...prev, newElement]);
+                        e.currentTarget.value = '';
+                      }
+                    }}
+                  />
+                </div>
+
+                {visualElementPromptIdeas
+                  .filter((el) => !el.isChecked)
+                  .map((idea) => (
+                    <div
+                      key={idea.visualElement}
+                      className={cn(
+                        'flex flex-col w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-dashed border-gray-200 dark:border-gray-600 cursor-pointer hover:border-yellow-500 dark:hover:border-yellow-500 transition-colors',
+                        isGeneratingAdditionalVisualElements && 'opacity-50 cursor-not-allowed'
+                      )}
+                      onClick={() => setVisualElementPromptIdeas(visualElementPromptIdeas.map((el) => (el.visualElement === idea.visualElement ? { ...el, isChecked: true } : el)))}
+                    >
+                      <span className='font-medium text-sm'>{idea.visualElement}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div className='w-px bg-gray-200 dark:bg-gray-700'></div>
+
+            <div className='flex-1 '>
+              <div className='flex items-center'>
+                <h3 className='text-lg font-medium'>Approved Elements</h3>
+              </div>
+              <div className='mt-4  dark:bg-gray-800 rounded-lg'>
+                <div className='space-y-2 p-4'>
+                  <div className='flex flex-wrap gap-3 max-h-[600px] overflow-y-auto'>
+                    {visualElementPromptIdeas
+                      .filter((el) => el.isChecked)
+                      .map((idea) => (
+                        <div key={idea.visualElement} className='flex w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-gray-200 dark:border-gray-600'>
+                          <div className='flex justify-between gap-2 items-start w-full'>
+                            <span className='font-medium text-sm'>{idea.visualElement}</span>
+                            <button
+                              onClick={() => setVisualElementPromptIdeas(visualElementPromptIdeas.map((el) => (el.visualElement === idea.visualElement ? { ...el, isChecked: false } : el)))}
+                              className='text-gray-400 hover:text-red-500 transition-colors'
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className='flex justify-end'>
+            <button
+              onClick={() => {
+                handleGenerateAndSetImages();
+                setIsVisualElementsModalOpen(false);
+              }}
+              disabled={visualElementPromptIdeas.filter((el) => el.isChecked).length < 1}
+              className={cn('flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-yellow-500 text-white hover:bg-yellow-600 transition-colors', {
+                'opacity-50 cursor-not-allowed': visualElementPromptIdeas.filter((el) => el.isChecked).length < 1,
+              })}
+            >
+              <FaHandSparkles className='h-4 w-4' />
+              <span>Continue with Selected Elements</span>
+            </button>
+          </div>
+        </div>
       </Modal>
     </Editor>
   );

@@ -71,7 +71,7 @@ export async function seedTemplates(prismaClient: PrismaClient) {
     },
     {
       name: 'sketchy',
-      description: 'A somewhat impressionistic colored pencil sketch, reminiscent of Van Gogh.',
+      description: 'A somewhat impressionistic colored pencil sketch.',
       exampleImagePrompt:
         'A medium-sized painting of Wall-E, painted in shades of yellow and black. His eyes, large and round, are painted in a glossy silver, giving a curious and endearing expression. His body is detailed with scratches and rust, hinting at years of service. The small, claw-like hands are slightly raised, as if reaching for something. The background is a soft sandy beige, with faint hints of scattered stars and dust.',
       exampleImageUrl: 'https://cdn-uploads.huggingface.co/production/uploads/65bb837dbfb878f46c77de4c/PAH7Xx5AVf1FwtwdN-oDQ.png',
@@ -107,7 +107,7 @@ export async function seedTemplates(prismaClient: PrismaClient) {
     },
     {
       name: 'pin art',
-      description: 'An embossed metal and enamel style, with a glossy finish, reminiscent of a wearable pin.',
+      description: 'An enamel style, with a glossy finish, reminiscent of a wearable pin.',
       exampleImagePrompt:
         'An eye-level view of a yellow wall featuring a black silhouette of a city skyline at the bottom. Above the skyline, a bright pink hot air balloon is floating, with tiny blue birds flying around it.',
       exampleImageUrl: 'https://cdn-uploads.huggingface.co/production/uploads/65bb837dbfb878f46c77de4c/VlxvRBX55rW5mOsw8WDIS.png',

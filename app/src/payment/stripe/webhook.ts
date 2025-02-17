@@ -6,7 +6,6 @@ import { Stripe } from 'stripe';
 import { stripe } from './stripeClient';
 import { paymentPlans, PaymentPlanId, SubscriptionStatus } from '../plans';
 import { updateUserStripePaymentDetails } from './paymentDetails';
-import { assertUnreachable } from '../../shared/utils';
 import { requireNodeEnvVar } from '../../server/utils';
 import { z } from 'zod';
 
@@ -28,17 +27,13 @@ export const stripeWebhook: PaymentsWebhook = async (request, response, context)
       const session = event.data.object as Stripe.Checkout.Session;
       await handleCheckoutSessionCompleted(session, prismaUserDelegate);
       break;
+    case 'payment_intent.succeeded':
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      await handlePaymentIntentSucceeded(paymentIntent, prismaUserDelegate);
+      break;
     case 'invoice.paid':
       const invoice = event.data.object as Stripe.Invoice;
       await handleInvoicePaid(invoice, prismaUserDelegate);
-      break;
-    case 'customer.subscription.updated':
-      const updatedSubscription = event.data.object as Stripe.Subscription;
-      await handleCustomerSubscriptionUpdated(updatedSubscription, prismaUserDelegate);
-      break;
-    case 'customer.subscription.deleted':
-      const deletedSubscription = event.data.object as Stripe.Subscription;
-      await handleCustomerSubscriptionDeleted(deletedSubscription, prismaUserDelegate);
       break;
     default:
       // If you'd like to handle more events, you can add more cases above.
@@ -67,26 +62,10 @@ export async function handleCheckoutSessionCompleted(
     expand: ['line_items'],
   });
 
-  const lineItemPriceId = extractPriceId(line_items);
-
-  const planId = getPlanIdByPriceId(lineItemPriceId);
-  const plan = paymentPlans[planId];
-
-  let subscriptionPlan: PaymentPlanId | undefined;
-  let numOfCreditsPurchased: number | undefined;
-  switch (plan.effect.kind) {
-    case 'subscription':
-      subscriptionPlan = planId;
-      break;
-    case 'credits':
-      numOfCreditsPurchased = plan.effect.amount;
-      break;
-    default:
-      assertUnreachable(plan.effect);
-  }
+  const subscriptionPlan = getPlanIdByPriceId(extractPriceId(line_items));
 
   return updateUserStripePaymentDetails(
-    { userStripeId, subscriptionPlan, numOfCreditsPurchased, datePaid: new Date() },
+    { userStripeId, subscriptionPlan },
     prismaUserDelegate
   );
 }
@@ -95,6 +74,31 @@ export async function handleInvoicePaid(invoice: Stripe.Invoice, prismaUserDeleg
   const userStripeId = validateUserStripeIdOrThrow(invoice.customer);
   const datePaid = new Date(invoice.period_start * 1000);
   return updateUserStripePaymentDetails({ userStripeId, datePaid }, prismaUserDelegate);
+}
+
+export async function handlePaymentIntentSucceeded(
+  paymentIntent: Stripe.PaymentIntent,
+  prismaUserDelegate: PrismaClient['user']
+) {
+  const userStripeId = validateUserStripeIdOrThrow(paymentIntent.customer);
+  const datePaid = new Date(paymentIntent.created * 1000);
+
+  const { metadata } = paymentIntent;
+
+  if (!metadata.priceId) {
+    throw new HttpError(400, 'No price id found in payment intent');
+  }
+
+  const planId = getPlanIdByPriceId(metadata.priceId);
+  const plan = paymentPlans[planId];
+  const subscriptionPlan = planId;
+
+  let numOfCreditsPurchased = plan.effect.amount;
+
+  return updateUserStripePaymentDetails(
+    { userStripeId, subscriptionPlan, numOfCreditsPurchased, datePaid },
+    prismaUserDelegate
+  );
 }
 
 export async function handleCustomerSubscriptionUpdated(

@@ -14,8 +14,15 @@ import type {
   GetImageTemplates,
   GetImageTemplateById,
   SaveBrandLogo,
+  GenerateAndRefinePrompts,
+  GetBannerIdeasFromTitle,
+  GenerateAdditionalVisualElements,
 } from 'wasp/server/operations';
 import type { FileOutput } from 'replicate';
+import type { Prisma } from '@prisma/client';
+import type { DefaultArgs } from '@prisma/client/runtime/library';
+import type { AuthUser } from 'wasp/auth';
+import type { ChatCompletionTool, ChatCompletionToolChoiceOption } from 'openai/resources/index.mjs';
 
 import axios from 'axios';
 import fetch from 'node-fetch';
@@ -83,14 +90,22 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export const generatePromptFromTitle: GeneratePromptFromTitle<
-  { title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean; numOutputs: number },
-  { promptArray: { prompt: string }[] }
-> = async ({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs }, context) => {
-  if (!context.user) {
-    throw new HttpError(401);
-  }
+export type VisualElementPromptIdea = { visualElement: string; visualElementDescription?: string; isChecked?: boolean; isUserSubmitted?: boolean };
 
+const styleGuidelines = `
+- Avoid overly abstract concepts; aim for ideas that clearly illustrate the post's title in a way that can be directly translated into an image.
+- Include objects in the proposed visual elements that reflect the post's title so the reader can quickly get a sense of what the post is about from the image. 
+- Use general categories and common nouns over named entities and proper nouns.
+- Each visual element concept/idea should include objects that can be easily depicted.
+- A visual element concept/idea can include a range of one to three objects.
+- Don't add words, text, text characters, brands, and logos to the image.
+- Make sure the visual elements are varied and distinct from one another.
+`;
+
+export const getBannerIdeasFromTitle: GetBannerIdeasFromTitle<
+  { title: string; keywords: string[]; imageTemplateId: ImageTemplate['id']; numOfVisualElementIdeas: number },
+  { mainIdeas: string; visualElements: VisualElementPromptIdea[] }
+> = async ({ title, keywords, imageTemplateId, numOfVisualElementIdeas = 10 }, context) => {
   if (openai instanceof Error) {
     throw openai;
   }
@@ -100,124 +115,458 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
     throw new HttpError(400, 'Image template not found');
   }
 
-  let brandTheme: BrandTheme | null = null;
-  let colorPalettePrompt;
-  let brandMoodPrompt;
-  if (isUsingBrandSettings || isUsingBrandColors) {
-    brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
-  }
-  if (isUsingBrandColors) {
-    const colorPaletteString = brandTheme?.colorScheme.join(', ');
-    console.log('colorPaletteString from brandTheme: ', colorPaletteString);
-
-    const colorPalette = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert color palette engineer. You will be given a list of hex color codes and your job is to find the matching color names for each hex code from a provided list and return the names of these colors as a string.`,
-        },
-        { role: 'user', content: `Here is the list of hex color codes: ${colorPaletteString}, and here is the list of available color names: ${colorNames}` },
-      ],
-      tools: [
-        {
-          type: 'function',
-          function: {
-            name: 'generateColorPalette',
-            description: 'Generates a string of the color palette that matches the provided list of hex color codes',
-            parameters: {
-              type: 'object',
-              properties: {
-                colorPalette: {
-                  type: 'string',
-                  description: 'The color palette string',
+  const tools: ChatCompletionTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'generatePromptIdeas',
+        description: 'Generates image prompts for a social media or blog post',
+        parameters: {
+          type: 'object',
+          properties: {
+            mainIdeas: {
+              type: 'array',
+              items: {
+                type: 'string',
+                description: 'A main idea or message of the image',
+              },
+            },
+            visualElements: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  visualElement: { type: 'string', description: 'A visual element idea that could be used within an image generation prompt to create a banner for the post' },
+                  visualElementDescription: {
+                    type: 'string',
+                    description: 'A description of the visual element idea and reasoning for why the this visual element would be a good fit for the image style and the main ideas of the post',
+                  },
                 },
               },
-              required: ['colorPalette'],
             },
           },
+          required: ['visualElements', 'mainIdeas'],
         },
-      ],
-      tool_choice: { type: 'function', function: { name: 'generateColorPalette' } },
-    });
+      },
+    },
+  ];
 
-    const colorPaletteResult = colorPalette.choices[0].message.tool_calls?.[0].function.arguments;
-    if (!colorPaletteResult) {
-      throw new HttpError(500, 'Bad response from OpenAI');
-    }
+  const tool_choice: ChatCompletionToolChoiceOption = { type: 'function', function: { name: 'generatePromptIdeas' } };
 
-    const colorPaletteNames = JSON.parse(colorPaletteResult).colorPalette;
-    console.log('colorPaletteNames: ', colorPaletteNames);
-    colorPalettePrompt = `The image prompt should use this color palette: ${colorPaletteNames}.`;
-  }
-  if (isUsingBrandSettings) {
-    brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
-  }
-
-  console.log('numOutputs: ', numOutputs);
-
+  // create an openai chat completion with function calling for the function generatePromptIdeas
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       {
         role: 'system',
         content: `
-          You are an expert blog and social media image prompt engineer. 
-          You will be given a title or topic along with an example prompt and an image style. 
-          Your job is to create an image prompt based on the title or topic. 
-          Use the example prompt and suggested image styles as a guide, but make sure to prioritize the title of the post as the main idea within the prompt. 
-          DO NOT create complex, abstract, or conceptual prompts. 
-          DO NOT include any mention of text, words, brands, or logos, as you will be penalized if you do. 
-          The prompts should not add text within the image.`,
+        You will be given a title and keywords of a social media or blog post.
+        Your job is to brainstorm and return a list of ${numOfVisualElementIdeas} concepts and visual elements that could be used within an image generation prompt to create a banner for the post.
+        First, you will think about this title and keywords to determine the main concepts and ideas of the post.
+        Then, with the post's main ideas in mind, use the following style guidelines to propose ${numOfVisualElementIdeas} visual elements that could be used within an image generation prompt: ${styleGuidelines}
+        `,
       },
       {
         role: 'user',
         content: `
-          Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}. 
-          The image being generated is using a fine-tuned model with this style: ${imageTemplate.description ?? imageTemplate.name}. 
-          ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
-          ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
-          Here is the example prompt: ${imageTemplate.exampleImagePrompt}`,
+        Here is the title and keywords of a social media or blog post. Title: ${title}. Keywords: ${keywords.join(', ')}.`,
+      },
+    ],
+    tools,
+    tool_choice,
+  });
+
+  const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
+  if (!result) {
+    throw new HttpError(500, 'Bad response from OpenAI');
+  }
+
+  console.log('intermediate visual elements: ', JSON.parse(result));
+
+  // call the openai chat completion endpoint again, this time with the visual elements and main ideas, and ask it to review the visual elements and return them all but edited to fit the style guidelines
+  const reviewCompletion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `
+        You are an expert social media and blog post image banner prompt engineer. 
+        You will be given a list of visual elements and main ideas according to the title of a social media or blog post. 
+        Your job is to review the visual elements to see if they fit the post and the following style guidelines: ${styleGuidelines}.
+        If a visual element references an abstract concept, edit it to make it more specific or tangible (e.g. "an open toolbox with thoughts and questions coming out of it" -> "an open toolbox with question marks coming out of it").
+        If a visual element contains words, text, text characters, brands, and logos, edit it to remove them and replace it with a real object.
+        If a visual element references specific entity or proper noun, edit it to use general categories and common nouns.
+        Return all ${numOfVisualElementIdeas} visual elements, whether you edited them or not.
+        `,
+      },
+      {
+        role: 'user',
+        content: `Here are the visual elements and main ideas as a JSON object: ${result}.`,
+      },
+    ],
+    tools,
+    tool_choice,
+  });
+
+  const reviewResult = reviewCompletion.choices[0].message.tool_calls?.[0].function.arguments;
+  if (!reviewResult) {
+    throw new HttpError(500, 'Bad response from OpenAI');
+  }
+  console.log('review of visual elements: ', JSON.parse(reviewResult));
+  return JSON.parse(reviewResult);
+};
+
+export const generateAdditionalVisualElements: GenerateAdditionalVisualElements<
+  { visualElements: VisualElementPromptIdea[]; imageTemplateId: ImageTemplate['id']; title: string; keywords: string[] },
+  { visualElements: VisualElementPromptIdea[] }
+> = async ({ visualElements, imageTemplateId, title, keywords }, context) => {
+  if (openai instanceof Error) {
+    throw openai;
+  }
+
+  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
+  if (!imageTemplate) {
+    throw new HttpError(400, 'Image template not found');
+  }
+
+  const approvedVisualElements = visualElements.filter((visualElement) => visualElement.isChecked);
+  const numOfVisualElementIdeasToGenerate = 10 - approvedVisualElements.length;
+
+  console.log('numOfVisualElementIdeasToGenerate: ', numOfVisualElementIdeasToGenerate);
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert social media and blog post image banner prompt engineer. 
+        You will be given a title and keywords of a social media or blog post.
+        You will also be given already reviewed visual elements and concepts that may be used within a generation prompt to create a banner image for the post.
+        Your job is to return a list of ${numOfVisualElementIdeasToGenerate} new, distinct, and relevant visual elements and concepts that could be used within a generation prompt to create a banner image for the post.
+        Use the following style guidelines to propose visual elements: ${styleGuidelines}
+        Propose some visual elements that are simple and straightforward, and some that are more complex and abstract.
+        Do not return any visual elements that are already in the list of reviewed visual elements.
+        `,
+      },
+      {
+        role: 'user',
+        content: `
+        Here is the title and keywords of a social media or blog post. Title: ${title}. Keywords: ${keywords.join(', ')}.
+        Here are the already reviewed (approved or discarded) visual elements and concepts: ${visualElements.map((visualElement) => `${visualElement.visualElement}`).join('\n')}.`,
       },
     ],
     tools: [
       {
         type: 'function',
         function: {
-          name: 'generateImagePrompts',
-          description: `Generates ${numOutputs === 1 ? `${numOutputs} image prompt` : `${numOutputs} image prompts`} for a social media or blog post`,
+          name: 'generatePromptIdeasFromVisualElements',
+          description: 'Generates image prompts for a social media or blog post from a list of visual elements',
           parameters: {
             type: 'object',
             properties: {
-              promptArray: {
+              visualElements: {
                 type: 'array',
-                description: `an array of ${numOutputs === 1 ? '1 image generation prompt' : `${numOutputs} image generation prompts`}`,
                 items: {
                   type: 'object',
                   properties: {
-                    prompt: {
+                    visualElement: { type: 'string', description: 'A visual element of the image' },
+                    visualElementDescription: {
                       type: 'string',
-                      description: 'the image generation prompt',
+                      description: 'A description of the idea and reasoning for why the this visual element would be a good fit for the image style and the main ideas of the post',
                     },
                   },
+                  required: ['visualElement', 'visualElementDescription'],
                 },
               },
             },
-            required: ['promptArray'],
+            required: ['visualElements'],
           },
         },
       },
     ],
-    tool_choice: { type: 'function', function: { name: 'generateImagePrompts' } },
+    tool_choice: { type: 'function', function: { name: 'generatePromptIdeasFromVisualElements' } },
   });
 
   const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
-  console.log('result: ', result);
+  if (!result) {
+    throw new HttpError(500, 'Bad response from OpenAI');
+  }
+  console.log('additional visual elements: ', JSON.parse(result));
+
+  return JSON.parse(result);
+};
+
+type OperationsContext = {
+  entities: {
+    User: Prisma.UserDelegate<DefaultArgs>;
+    ImageTemplate: Prisma.ImageTemplateDelegate<DefaultArgs>;
+    BrandTheme: Prisma.BrandThemeDelegate<DefaultArgs>;
+  };
+  user?: AuthUser | undefined;
+};
+
+const generateColorPaletteStrFromHexCodes = async ({ hexCodes }: { hexCodes: string }): Promise<string> => {
+  if (openai instanceof Error) {
+    throw openai;
+  }
+
+  const colorPalette = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert color palette engineer. You will be given a list of hex color codes and your job is to find the matching color names for each hex code from a provided list and return the names of these colors as a string.`,
+      },
+      { role: 'user', content: `Here is the list of hex color codes: ${hexCodes}, and here is the list of available color names: ${colorNames}` },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'assembleFinalPrompts',
+          description: 'Assembles the final image prompts for a social media or blog post',
+          parameters: {
+            type: 'object',
+            properties: {
+              colorPalette: {
+                type: 'string',
+                description: 'The color palette string',
+              },
+            },
+            required: ['colorPalette'],
+          },
+        },
+      },
+    ],
+    tool_choice: { type: 'function', function: { name: 'assembleFinalPrompts' } },
+  });
+
+  const colorPaletteResult = colorPalette.choices[0].message.tool_calls?.[0].function.arguments;
+  if (!colorPaletteResult) {
+    throw new HttpError(500, 'Bad response from OpenAI');
+  }
+
+  const colorPaletteNames = JSON.parse(colorPaletteResult).colorPalette;
+
+  return colorPaletteNames;
+};
+
+const returnPromptsMatchingStyleGuidelines = async ({
+  promptArray,
+  title,
+  mainIdeas,
+  numOutputs,
+  userSubmittedVisualElements,
+}: {
+  promptArray: { prompt: string }[];
+  title: string;
+  mainIdeas: string;
+  numOutputs: number;
+  userSubmittedVisualElements: VisualElementPromptIdea[];
+}): Promise<{ mostSuitablePromptsArray: { prompt: string }[]; lessSuitablePromptsArray: { prompt: string }[] }> => {
+  if (openai instanceof Error) {
+    throw openai;
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert image generation prompt curator. You will be given a list of ${
+          numOutputs * 2
+        } image prompts, the title of a social media or blog post, and the main ideas of the post. Your job is to separate the ${numOutputs} best prompts from the ${numOutputs} less suitable prompts based on the title and main ideas of the post while the following the provided style guidelines.
+        If a visual element is user submitted, favor it in the more suitable prompts over non-user submitted visual elements.
+        `,
+      },
+      {
+        role: 'user',
+        content: `Here is the list of image prompts: ${promptArray.map((p, index) => `- ${index + 1}. ${p.prompt}`).join('\n')}. 
+        Here is the title of the post: ${title} and the main ideas of the post: ${mainIdeas}. 
+        Here are the style guidelines: ${styleGuidelines}
+        Here are the user submitted visual elements: ${userSubmittedVisualElements.map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}`).join('\n')}`,
+      },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'assembleFinalPrompts',
+          description: 'Assembles the final image prompts for a social media or blog post',
+          parameters: {
+            type: 'object',
+            properties: {
+              mostSuitablePromptsArray: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    prompt: { type: 'string' },
+                  },
+                  required: ['prompt'],
+                },
+              },
+              lessSuitablePromptsArray: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { prompt: { type: 'string' } },
+                  required: ['prompt'],
+                },
+              },
+            },
+            required: ['mostSuitablePromptsArray', 'lessSuitablePromptsArray'],
+          },
+        },
+      },
+    ],
+    tool_choice: { type: 'function', function: { name: 'assembleFinalPrompts' } },
+  });
+
+  console.log('promptsMatchingStyleGuidelinesArray: ', completion.choices[0].message.tool_calls?.[0].function.arguments);
+
+  const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
   if (!result) {
     throw new HttpError(500, 'Bad response from OpenAI');
   }
 
   return JSON.parse(result);
+};
+
+export const generateAndRefinePrompts: GenerateAndRefinePrompts<
+  { title: string; keywords: string[]; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings: boolean; isUsingBrandColors: boolean; numOutputs: number; mainIdeas: string; visualElements: VisualElementPromptIdea[] },
+  { mostSuitablePromptsArray: { prompt: string }[]; lessSuitablePromptsArray: { prompt: string }[] }
+> = async ({ title, keywords, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+  if (context.user.credits < numOutputs) {
+    throw new HttpError(402, 'You do not have enough credits to generate images');
+  }
+  const userSubmittedVisualElements = visualElements.filter((visualElement) => visualElement.isUserSubmitted);
+  const { promptArray } = await generatePromptFromTitle({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context);
+  return await returnPromptsMatchingStyleGuidelines({ promptArray, title, mainIdeas, numOutputs, userSubmittedVisualElements });
+};
+
+export const generatePromptFromTitle: GeneratePromptFromTitle<
+  { title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean; numOutputs: number; mainIdeas: string; visualElements: VisualElementPromptIdea[] },
+  { promptArray: { prompt: string }[] }
+> = async ({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context) => {
+  if (!context.user) {
+    throw new HttpError(401);
+  }
+  if (!context.user.credits) {
+    throw new HttpError(402, 'You do not have enough credits to generate images');
+  }
+
+  try {
+    await context.entities.User.update({
+      where: { id: context.user.id },
+      data: { credits: { decrement: numOutputs } },
+    });
+
+    if (openai instanceof Error) {
+      throw openai;
+    }
+
+    const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
+    if (!imageTemplate) {
+      throw new HttpError(400, 'Image template not found');
+    }
+
+    let brandTheme: BrandTheme | null = null;
+    let colorPalettePrompt;
+    let brandMoodPrompt = 'The image should have a mood of "whimsical", "energetic", or "dramatic"';
+    if (isUsingBrandSettings || isUsingBrandColors) {
+      brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
+    }
+    if (isUsingBrandColors) {
+      const colorPaletteString = brandTheme?.colorScheme.join(', ');
+      console.log('colorPaletteString from brandTheme: ', colorPaletteString);
+      if (colorPaletteString) {
+        const colorPaletteNames = await generateColorPaletteStrFromHexCodes({ hexCodes: colorPaletteString });
+        console.log('colorPaletteNames: ', colorPaletteNames);
+        colorPalettePrompt = `The image prompt should use this color palette: ${colorPaletteNames}.`;
+      }
+    }
+    if (isUsingBrandSettings) {
+      brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
+    }
+
+    numOutputs = numOutputs * 2;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `
+          You are an expert blog and social media image prompt engineer. 
+          You will be given a title of a post, along with the posts's main concepts, some suggested visual elements, and an example prompt based on the image style. 
+          Your job is to create image generation prompts to accompany the post by following these style guidelines: ${styleGuidelines}
+          Prioritize the user submitted visual elements over the other suggested visual elements when creating the prompts.
+          Use the example prompt as a guide for how to formulate the prompts. `,
+        },
+        {
+          role: 'user',
+          content: `
+          Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}.
+          Use this brainstorming list of the post's main concepts and visual elements to create the prompts: ${mainIdeas} ${visualElements
+            .map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}: ${visualElement.isUserSubmitted ? 'User Submitted' : ''}`)
+            .join('\n')}.
+          ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
+          ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
+          Here is the image style being generated: ${imageTemplate.description ?? imageTemplate.name}.
+          Here is the example prompt: ${imageTemplate.exampleImagePrompt}`,
+        },
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'generateImagePrompts',
+            description: `Generates ${numOutputs === 1 ? `${numOutputs} image prompt` : `${numOutputs} image prompts`} for a social media or blog post`,
+            parameters: {
+              type: 'object',
+              properties: {
+                promptArray: {
+                  type: 'array',
+                  description: `an array of ${numOutputs === 1 ? '1 image generation prompt' : `${numOutputs} image generation prompts`}`,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      prompt: {
+                        type: 'string',
+                        description: 'the image generation prompt',
+                      },
+                    },
+                  },
+                },
+              },
+              required: ['promptArray'],
+            },
+          },
+        },
+      ],
+      tool_choice: { type: 'function', function: { name: 'generateImagePrompts' } },
+    });
+
+    const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
+    console.log('result: ', result);
+    if (!result) {
+      throw new HttpError(500, 'Bad response from OpenAI');
+    }
+
+    return JSON.parse(result);
+  } catch (error: any) {
+    if (!!context.user && error?.statusCode !== 402) {
+      await context.entities.User.update({
+        where: { id: context.user.id },
+        data: { credits: { increment: numOutputs } },
+      });
+    }
+    throw error;
+  }
 };
 
 export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, { variations: { prompt: string }[] }> = async ({ initialPrompt }, context) => {
@@ -377,8 +726,13 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
     throw new HttpError(400, 'Lora weights URL is required');
   }
 
-  const combinedPrompt = `${imageTemplate.loraTriggerWord ? `${imageTemplate.loraTriggerWord}: ` : ''}${userPrompt}`;
+  let combinedPrompt = `${imageTemplate.loraTriggerWord ? `${imageTemplate.loraTriggerWord}, ` : ''}${userPrompt}`;
+  if (imageTemplate.name === 'pin art') {
+    combinedPrompt = `${imageTemplate.loraTriggerWord}, an eye-level view, ${userPrompt}`;
+  }
   const useSeed = seed ?? generateSeed();
+
+  console.log('combinedPrompt: ', combinedPrompt);
 
   const output = await generateImageFromLora({
     prompt: combinedPrompt,
@@ -581,12 +935,12 @@ export const getBrandThemeSettings: GetBrandThemeSettings<void, BrandTheme | nul
 };
 
 export const saveBrandLogo: SaveBrandLogo<
-  { 
-    fileName: string; 
-    fileExtension: string; 
+  {
+    fileName: string;
+    fileExtension: string;
     fileType: string;
     base64Data: string;
-  }, 
+  },
   void
 > = async ({ fileName, fileExtension, fileType, base64Data }, context) => {
   if (!context.user) {
@@ -621,4 +975,3 @@ export const saveBrandLogo: SaveBrandLogo<
     throw new HttpError(500, `Failed to save brand logo: ${error.message}`);
   }
 };
-

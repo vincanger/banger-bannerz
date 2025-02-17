@@ -1,9 +1,9 @@
-import type { GeneratedImageDataWithTemplate } from './GenerateImagePrompt';
+import type { GeneratedImageDataWithTemplate } from './GenerateImagePage';
 
 import { cn } from '../../client/cn';
 import { FC, useState } from 'react';
 import { routes } from 'wasp/client/router';
-import { FaHashtag, FaEdit, FaExpand, FaSave } from 'react-icons/fa';
+import { FaHashtag, FaEdit, FaExpand, FaSave, FaDownload } from 'react-icons/fa';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { saveGeneratedImageData } from 'wasp/client/operations';
 import { toast } from 'react-hot-toast';
@@ -51,7 +51,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                   disabled={imagePromptImageId === image.id}
                   onClick={() => {
                     navigate(
-                      routes.GenerateImagePromptRoute.build({
+                      routes.GenerateImageRoute.build({
                         search: {
                           generateBy: 'prompt',
                           imageId: image.id,
@@ -70,7 +70,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                   <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
                     <FaEdit className='w-4 h-4' />
                   </div>
-                  <span className='text-xs text-gray-600'>Edit Prompt</span>
+                  <span className='text-xs text-gray-600 text-center w-16'>Edit Prompt</span>
                 </button>
                 <button
                   onClick={async () => {
@@ -89,12 +89,35 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                       'opacity-50 cursor-not-allowed': image.saved
                     }
                   )}
-                  title={image.saved ? 'Image already saved' : 'Save Image'}
+                  title={image.saved ? 'Image added to library' : 'Add Image to Library'}
                 >
                   <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
                     <FaSave className='w-4 h-4' />
                   </div>
-                  <span className='text-xs text-gray-600'>Save</span>
+                  <span className='text-xs text-gray-600 text-center w-16'>Add to Image Library</span>
+                </button>
+                <button
+                  onClick={() => {
+                    // Create a temporary anchor element
+                    const link = document.createElement('a');
+                    link.href = image.url;
+                    // Extract image name and type from URL
+                    const imageName = image.url.split('/').pop() || 'image';
+                    const imageType = imageName.split('.').pop() || 'png';
+                    // Set download filename
+                    link.download = `${imageName.split('.')[0]}.${imageType}`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    toast.success('Download started');
+                  }}
+                  className='flex flex-col items-center gap-1'
+                  title='Download Image'
+                >
+                  <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
+                    <FaDownload className='w-4 h-4' />
+                  </div>
+                  <span className='text-xs text-gray-600 text-center w-16'>Download</span>
                 </button>
                 <button
                   onClick={ () => {
@@ -111,7 +134,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                   <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
                     <FaHashtag className='w-4 h-4' />
                   </div>
-                  <span className='text-xs text-gray-600'>Create OG</span>
+                  <span className='text-xs text-gray-600 text-center w-16'>Create OG</span>
                 </button>
               </div>
             </div>

@@ -85,7 +85,7 @@ export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
     <form className='p-4'>
       <h2 className='my-4 text-lg font-semibold text-gray-900'>Preferred Image Settings</h2>
 
-      <CheckboxGroup
+      {/* <CheckboxGroup
         label='Image Style'
         name='imageTemplateId'
         options={imageTemplates?.map((template) => template.name) || []}
@@ -94,7 +94,7 @@ export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
         register={register}
         onChange={(name, value, isChecked) => handleCheckboxChange(name, value, isChecked)}
         maxSelections={1} // Limit to single selection
-      />
+      /> */}
 
       <CheckboxGroup
         label='Image Moods'

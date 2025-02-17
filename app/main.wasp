@@ -114,13 +114,13 @@ query getPaginatedUsers {
   entities: [User]
 }
 
-action updateCurrentUser {
-  fn: import { updateCurrentUser } from "@src/user/operations",
+action updateCurrentUserLastActiveTimestamp {
+  fn: import { updateCurrentUserLastActiveTimestamp } from "@src/user/operations",
   entities: [User]
 }
 
-action updateUserById {
-  fn: import { updateUserById } from "@src/user/operations",
+action updateUserIsAdminById {
+  fn: import { updateUserIsAdminById } from "@src/user/operations",
   entities: [User]
 }
 //#endregion
@@ -213,21 +213,36 @@ query getGeneratedImageDataById {
 //#endregion
 
 //#region Image Generation
-route RecentGeneratedImagesRoute { path: "/recent-images", to: RecentGeneratedImagesPage }
-page RecentGeneratedImagesPage {
-  authRequired: true,
-  component: import { RecentGeneratedImages } from "@src/editor/components/RecentGeneratedImages"
+action getBannerIdeasFromTitle {
+  fn: import { getBannerIdeasFromTitle } from "@src/banner/operations",
+  entities: [User, BrandTheme, ImageTemplate]
 }
 
-route GenerateImagePromptRoute { path: "/", to: GenerateImagePromptPage }
-route GenerateImagePromptFromTemplateRoute { path: "/generate-image/:id", to: GenerateImagePromptPage }
-page GenerateImagePromptPage {
-  component: import { GenerateImagePrompt } from "@src/editor/components/GenerateImagePrompt"
+action generateAdditionalVisualElements {
+  fn: import { generateAdditionalVisualElements } from "@src/banner/operations",
+  entities: [User, BrandTheme, ImageTemplate]
+}
+
+action generateAndRefinePrompts {
+  fn: import { generateAndRefinePrompts } from "@src/banner/operations",
+  entities: [User, BrandTheme, ImageTemplate]
+}
+
+route ImageLibraryRoute { path: "/image-library", to: ImageLibraryPage }
+page ImageLibraryPage {
+  authRequired: true,
+  component: import { ImageLibraryPage } from "@src/editor/components/ImageLibraryPage"
+}
+
+route GenerateImageRoute { path: "/", to: GenerateImagePage }
+page GenerateImagePage {
+  component: import { GenerateImagePage } from "@src/editor/components/GenerateImagePage"
 }
 
 route EditImagesRoute { path: "/edit-image", to: EditImagePage }
 route EditImageRoute { path: "/edit-image/:id", to: EditImagePage }
 page EditImagePage {
+  authRequired: true,
   component: import { EditImage } from "@src/editor/components/EditImage"
 }
 
