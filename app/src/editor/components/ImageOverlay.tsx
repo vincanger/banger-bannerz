@@ -702,50 +702,50 @@ export const ImageOverlay: FC = () => {
     );
   };
 
-  if (!id && !!recentImages?.length) {
-    return (
-      <Editor>
+  const renderContent = () => {
+    if (!id && !!recentImages?.length) {
+      return (
         <div className='p-4 flex flex-col items-center justify-center'>
           <h1 className='text-2xl font-bold mb-4'>Select an image to edit</h1>
           <ImageGrid images={recentImages} />
         </div>
-      </Editor>
-    );
-  }
+      );
+    }
 
-  if ((imageDataLoading || proxyLoading) && id ) {
-    return (
-      <div className='flex items-center justify-center h-64'>
-        <p className='text-gray-500'>Loading image...</p>
-      </div>
-    );
-  }
+    if ((imageDataLoading || proxyLoading) && id) {
+      return (
+        <div className='flex items-center justify-center h-64'>
+          <p className='text-gray-500'>Loading image...</p>
+        </div>
+      );
+    }
 
-  if (imageDataError || proxyError) {
-    return (
-      <div className='flex items-center justify-center h-64'>
-        <p className='text-red-500'>Error loading image: {imageDataError?.message || proxyError?.message}</p>
-      </div>
-    );
-  }
+    if (imageDataError || proxyError) {
+      return (
+        <div className='flex items-center justify-center h-64'>
+          <p className='text-red-500'>Error loading image: {imageDataError?.message || proxyError?.message}</p>
+        </div>
+      );
+    }
 
-  if (!imageData || !proxiedImageUrl || !recentImages?.length) {
-    return (
-      <Editor>
+    if (!imageData || !proxiedImageUrl || !recentImages?.length) {
+      return (
         <div className='flex items-center justify-center h-64'>
           <p className='text-gray-500'>No images found</p>
         </div>
-      </Editor>
-    );
-  }
+      );
+    }
 
-  return (
-    <Editor>
+    return (
       <div className='flex h-screen'>
-        {/* Fixed-width sidebar */}
-        <Sidebar handleImageUpload={handleImageUpload} debouncedHandleColorChange={debouncedHandleColorChange} brandThemeSettings={brandThemeSettings} sidebarRef={sidebarRef} selectedObject={selectedObject} />
+        <Sidebar 
+          handleImageUpload={handleImageUpload} 
+          debouncedHandleColorChange={debouncedHandleColorChange} 
+          brandThemeSettings={brandThemeSettings} 
+          sidebarRef={sidebarRef} 
+          selectedObject={selectedObject} 
+        />
 
-        {/* Centered canvas container */}
         <div className='flex-1 flex justify-center'>
           <div className='p-4 w-fit'>
             <div className='space-y-4'>
@@ -757,7 +757,6 @@ export const ImageOverlay: FC = () => {
                   <ExportControls />
                 </div>
               </div>
-              {/* divider */}
               <div className='h-px bg-gray-200' />
               <div className='shadow-lg border border-gray-300'>
                 <canvas ref={canvasRef} />
@@ -766,8 +765,10 @@ export const ImageOverlay: FC = () => {
           </div>
         </div>
       </div>
-    </Editor>
-  );
+    );
+  };
+
+  return <Editor>{renderContent()}</Editor>;
 };
 
 interface SidebarProps {

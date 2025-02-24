@@ -7,7 +7,6 @@ import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
 import {
-  generatePromptFromTitle,
   getBannerIdeasFromTitle,
   useQuery,
   getGeneratedImageDataById,
@@ -21,7 +20,7 @@ import {
 import { ImageGrid } from './ImageGrid';
 import { Modal } from './Modal';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { FaEdit, FaHandSparkles, FaQuestionCircle, FaPalette, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight, FaSpinner, FaLightbulb } from 'react-icons/fa';
+import { FaEdit, FaHandSparkles, FaQuestionCircle, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight, FaSpinner, FaLightbulb, FaPlus, FaComments } from 'react-icons/fa';
 import { cn } from '../../client/cn';
 import { Menu } from '@headlessui/react';
 import { routes } from 'wasp/client/router';
@@ -65,13 +64,11 @@ export const GenerateImagePage: FC = () => {
   const [discardedVisualElements, setDiscardedVisualElements] = useState<VisualElementPromptIdea[]>([]);
   const [isGeneratingAdditionalVisualElements, setIsGeneratingAdditionalVisualElements] = useState(false);
   const [lessSuitableImagePrompts, setLessSuitableImagePrompts] = useState<{ prompt: string }[]>([]);
-  const [keywords, setKeywords] = useState<string[]>([]);
-  const [currentKeywordInput, setCurrentKeywordInput] = useState('');
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<FluxDevAspectRatio>(PlatformAspectRatio['Twitter Landscape']);
   const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
   const [isGeneratingMoreImages, setIsGeneratingMoreImages] = useState(false);
-  const [hasGeneratedAdditionalImages, setHasGeneratedAdditionalImages] = useState(false);
+  const [isGeneratingImagesButtonText, setIsGeneratingImagesButtonText] = useState('Generating...');
 
   const [searchParams, setSearchParams] = useSearchParams();
   const generateImageBy = searchParams.get('generateBy') as GenerateImageSource;
@@ -101,6 +98,17 @@ export const GenerateImagePage: FC = () => {
     }
   }, [brandTheme]);
 
+  useEffect(() => {
+    const postTopic = localStorage.getItem('postTopic');
+    const userPrompt = localStorage.getItem('userPrompt');
+    if (postTopic) {
+      setPostTopic(postTopic);
+    }
+    if (userPrompt) {
+      setUserPrompt(userPrompt);
+    }
+  }, []);
+
   const handleTabChange = (index: number) => {
     setSearchParams((params) => {
       params.set('generateBy', index === 1 ? 'prompt' : 'topic');
@@ -128,10 +136,11 @@ export const GenerateImagePage: FC = () => {
   };
 
   const handleGenerateAndSetVisualElements = async () => {
-    if (!user) {
-      throw new ClientError(CLIENT_ERRORS.NO_USER);
-    }
     try {
+      if (!user) {
+        throw new ClientError(CLIENT_ERRORS.NO_USER);
+      }
+      setIsGeneratingImagesButtonText('Brainstorming ideas...');
       setIsGeneratingImages(true);
       if (!imageTemplateId || !selectedImageTemplate?.id) {
         throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
@@ -143,7 +152,6 @@ export const GenerateImagePage: FC = () => {
 
       const { mainIdeas, visualElements } = await getBannerIdeasFromTitle({
         title: postTopic,
-        keywords,
         imageTemplateId: selectedImageTemplate.id,
         numOfVisualElementIdeas: 10,
       });
@@ -151,28 +159,32 @@ export const GenerateImagePage: FC = () => {
       setVisualElementPromptIdeas(visualElements);
       setIsVisualElementsModalOpen(true);
     } catch (error: any) {
+      console.log('here');
       if (error instanceof ClientError) {
         toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_USER) {
+          navigate(routes.LoginRoute.to);
+        }
         if (error.message === CLIENT_ERRORS.NO_CREDITS) {
-          setTimeout(() => {
-            navigate(routes.PricingPageRoute.to);
-          }, 3000);
+          navigate(routes.PricingPageRoute.to);
         }
       } else {
-        console.error('Unexpected error:', error);
         toast.error('An unexpected error occurred');
+        console.error('Unexpected error:', error);
       }
     } finally {
       setIsGeneratingImages(false);
+      setIsGeneratingImagesButtonText('Generate Images');
     }
   };
 
   const handleGenerateAndSetImages = async () => {
-    if (!user) {
-      throw new ClientError(CLIENT_ERRORS.NO_USER);
-    }
     try {
       setIsGeneratingImages(true);
+      setIsGeneratingImagesButtonText('Generating Images...');
+      if (!user) {
+        throw new ClientError(CLIENT_ERRORS.NO_USER);
+      }
       if (!imageTemplateId || !selectedImageTemplate?.id) {
         throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
       }
@@ -181,9 +193,8 @@ export const GenerateImagePage: FC = () => {
         throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
       }
 
-      const { mostSuitablePromptsArray, lessSuitablePromptsArray } = await generateAndRefinePrompts({
+      const { mostSuitablePromptsArray } = await generateAndRefinePrompts({
         title: postTopic,
-        keywords,
         isUsingBrandSettings,
         isUsingBrandColors,
         imageTemplateId: selectedImageTemplate.id,
@@ -191,8 +202,6 @@ export const GenerateImagePage: FC = () => {
         mainIdeas: postMainIdeas,
         visualElements: visualElementPromptIdeas.filter((el) => el.isChecked),
       });
-
-      setLessSuitableImagePrompts(lessSuitablePromptsArray);
 
       const allGeneratedImages = [];
       for (const prompt of mostSuitablePromptsArray) {
@@ -209,6 +218,11 @@ export const GenerateImagePage: FC = () => {
     } catch (error: any) {
       if (error instanceof ClientError) {
         toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_USER) {
+          setTimeout(() => {
+            navigate(routes.LoginRoute.to);
+          }, 2000);
+        }
         if (error.message === CLIENT_ERRORS.NO_CREDITS) {
           setTimeout(() => {
             navigate(routes.PricingPageRoute.to);
@@ -220,21 +234,21 @@ export const GenerateImagePage: FC = () => {
       }
     } finally {
       setIsGeneratingImages(false);
-      setHasGeneratedAdditionalImages(false);
+      setIsGeneratingImagesButtonText('Generating Images...');
     }
   };
 
   const handleGenerateImageFromPrompt = async () => {
-    if (!user) {
-      throw new ClientError(CLIENT_ERRORS.NO_USER);
-    }
-    if (!imageTemplateId || !selectedImageTemplate?.id) {
-      throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
-    }
-    if (!doesUserHaveEnoughCredits()) {
-      throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
-    }
     try {
+      if (!user) {
+        throw new ClientError(CLIENT_ERRORS.NO_USER);
+      }
+      if (!imageTemplateId || !selectedImageTemplate?.id) {
+        throw new ClientError(CLIENT_ERRORS.NO_IMAGE_TEMPLATE);
+      }
+      if (!doesUserHaveEnoughCredits()) {
+        throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
+      }
       setIsGeneratingImages(true);
       const generatedImages = await generateBannerFromTemplate({
         userPrompt,
@@ -252,10 +266,11 @@ export const GenerateImagePage: FC = () => {
       console.error('Failed to generate prompts:', error);
       if (error instanceof ClientError) {
         toast.error(error.message);
+        if (error.message === CLIENT_ERRORS.NO_USER) {
+          navigate(routes.LoginRoute.to);
+        }
         if (error.message === CLIENT_ERRORS.NO_CREDITS) {
-          setTimeout(() => {
-            navigate(routes.PricingPageRoute.to);
-          }, 3000);
+          navigate(routes.PricingPageRoute.to);
         }
       } else {
         console.error('Unexpected error:', error);
@@ -263,56 +278,13 @@ export const GenerateImagePage: FC = () => {
       }
     } finally {
       setIsGeneratingImages(false);
-      setHasGeneratedAdditionalImages(false);
-    }
-  };
-
-  const handleGenerateMoreImages = async () => {
-    if (!user) {
-      throw new ClientError(CLIENT_ERRORS.NO_USER);
-    }
-    try {
-      setIsGeneratingMoreImages(true);
-
-      if (!doesUserHaveEnoughCredits()) {
-        throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
-      }
-      const allGeneratedImages = [...generatedImages];
-
-      for (const prompt of lessSuitableImagePrompts) {
-        const generatedImage = await generateBannerFromTemplate({
-          imageTemplateId: selectedImageTemplate!.id,
-          userPrompt: prompt.prompt,
-          numOutputs: 1,
-          postTopic,
-          aspectRatio: selectedAspectRatio,
-        });
-        allGeneratedImages.push(...generatedImage);
-        setGeneratedImages([...allGeneratedImages]); // Update state after each image
-      }
-      setHasGeneratedAdditionalImages(true);
-    } catch (error) {
-      if (error instanceof ClientError) {
-        toast.error(error.message);
-        if (error.message === CLIENT_ERRORS.NO_CREDITS) {
-          setTimeout(() => {
-            navigate(routes.PricingPageRoute.to);
-          }, 3000);
-        }
-      } else {
-        console.error('Failed to generate additional images:', error);
-        toast.error('An unexpected error occurred');
-      }
-    } finally {
-      setIsGeneratingMoreImages(false);
-      setHasGeneratedAdditionalImages(true);
     }
   };
 
   return (
     <Editor>
       <Tab.Group selectedIndex={generateImageBy === 'prompt' ? 1 : 0} onChange={handleTabChange}>
-        <div className='flex flex-col 2xl:w-[65%] rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
+        <div className='flex flex-col rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
           <Tab.List className='flex rounded-t-lg'>
             <Tab
               className={({ selected }) =>
@@ -338,78 +310,22 @@ export const GenerateImagePage: FC = () => {
             </Tab>
           </Tab.List>
 
-          <Tab.Panels className='p-4'>
+          <Tab.Panels className='flex flex-col w-full 2xl:w-[65%] mx-auto p-4'>
             <Tab.Panel>
               <div className='space-y-4'>
-                {/* Instruction Tooltip */}
-                <div className='flex justify-end'>
-                  <div className='relative group'>
-                    <FaQuestionCircle className='h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
-                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-black/90 rounded-lg shadow-lg'>
-                      <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0'></div>
-                      <p className='text-sm text-white'>
-                        Enter the title or topic of your accompanying post, and we'll generate the prompts for your AI images so that they match your content. Enable brand settings to maintain your visual identity and
-                        guide the style.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Title Input */}
-                <div>
+                <div className='group relative'>
                   <input
                     type='text'
                     id='prompt-title'
+                    title={`Enter the title or topic of your post, and we'll help generate the prompts for your AI images so that they match your content.`}
                     value={postTopic}
-                    onChange={(e) => setPostTopic(e.target.value)}
+                    onChange={(e) => {
+                      localStorage.setItem('postTopic', e.target.value);
+                      setPostTopic(e.target.value);
+                    }}
                     className='w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
                     placeholder='Enter the title or topic of your post'
-                  />
-                </div>
-
-                <div className='flex flex-wrap items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600'>
-                  {keywords.map((keyword, index) => (
-                    <span key={index} className='flex items-center gap-2 px-3 mx-1 py-1 bg-gray-200 rounded-full text-sm'>
-                      {keyword}
-                      <button
-                        onClick={() => {
-                          const newKeywords = keywords.filter((_, i) => i !== index);
-                          setKeywords(newKeywords);
-                        }}
-                        className='hover:text-red-500'
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    type='text'
-                    id='prompt-keywords'
-                    value={currentKeywordInput}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value.endsWith(',')) {
-                        const newKeyword = value.slice(0, -1).trim();
-                        if (newKeyword) {
-                          setKeywords([...keywords, newKeyword]);
-                          setCurrentKeywordInput('');
-                        }
-                      } else {
-                        setCurrentKeywordInput(value);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && currentKeywordInput.trim()) {
-                        e.preventDefault();
-                        setKeywords([...keywords, currentKeywordInput.trim()]);
-                        setCurrentKeywordInput('');
-                      } else if (e.key === 'Backspace' && !currentKeywordInput && keywords.length > 0) {
-                        // Remove last pill when backspace is pressed and input is empty
-                        setKeywords(keywords.slice(0, -1));
-                      }
-                    }}
-                    className='flex-1 min-w-[120px] outline-none border-none focus:ring-yellow-500 rounded-md focus:ring-2'
-                    placeholder={keywords.length === 0 ? 'Enter keywords separated by commas' : ''}
                   />
                 </div>
 
@@ -428,11 +344,14 @@ export const GenerateImagePage: FC = () => {
                   selectedImageTemplate={selectedImageTemplate}
                 />
 
-                {/* Template Use Section */}
-                <div></div>
-
                 {/* Generate Button */}
-                <LoadingButton onClick={handleGenerateAndSetVisualElements} disabled={!postTopic} isLoading={isGeneratingImages} text='Generate Images' />
+                <LoadingButton
+                  onClick={handleGenerateAndSetVisualElements}
+                  disabled={postTopic.length === 0 || !selectedImageTemplate}
+                  isLoading={isGeneratingImages}
+                  text='Generate Images'
+                  loadingText={isGeneratingImagesButtonText}
+                />
               </div>
             </Tab.Panel>
 
@@ -442,10 +361,7 @@ export const GenerateImagePage: FC = () => {
                 <div className='flex justify-end'>
                   <div className='relative group'>
                     <FaQuestionCircle className='h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
-                    <div className='absolute right-0 top-6 z-10 hidden group-hover:block w-72 p-4 bg-black/90 rounded-lg shadow-lg'>
-                      <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0'></div>
-                      <p className='text-sm text-white'>Write your own custom prompt or choose a prompt from one of your recently generated images to create exactly what you're looking for.</p>
-                    </div>
+                    <Tooltip text="Write your own custom prompt or choose a prompt from one of your recently generated images to create exactly what you're looking for." show={true} />
                   </div>
                 </div>
 
@@ -454,17 +370,18 @@ export const GenerateImagePage: FC = () => {
                   onClick={() => setIsModalOpen(true)}
                   className='w-full flex items-center justify-center space-x-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-3 text-sm text-gray-600 hover:border-yellow-500 hover:text-yellow-600 transition-colors duration-200'
                 >
-                  <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
-                    <path fillRule='evenodd' d='M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z' clipRule='evenodd' />
-                  </svg>
-                  <span>Choose a prompt from recently generated images</span>
+                  <FaComments className='h-4 w-4' />
+                  <span>Choose prompt from a recently generated image</span>
                 </button>
 
                 {/* Prompt Textarea */}
                 <div>
                   <textarea
                     value={userPrompt}
-                    onChange={(e) => setUserPrompt(e.target.value)}
+                    onChange={(e) => {
+                      localStorage.setItem('userPrompt', e.target.value);
+                      setUserPrompt(e.target.value);
+                    }}
                     className='w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-800'
                     rows={4}
                     placeholder={'Enter your prompt or choose a recent image above...'}
@@ -501,25 +418,6 @@ export const GenerateImagePage: FC = () => {
             <p className='text-sm italic text-gray-600'>
               The images below are temporary and will be <b>deleted after 24 hours</b> if they are not added to your library.
             </p>
-            {lessSuitableImagePrompts.length > 0 && generatedImages.length >= numOutputs && !hasGeneratedAdditionalImages && (
-              <button
-                onClick={handleGenerateMoreImages}
-                disabled={isGeneratingMoreImages}
-                className='flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-yellow-500 text-white hover:bg-yellow-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed'
-              >
-                {isGeneratingMoreImages ? (
-                  <>
-                    <FaSpinner className='h-4 w-4 animate-spin' />
-                    <span>Generating...</span>
-                  </>
-                ) : (
-                  <>
-                    <FaImages className='h-4 w-4' />
-                    <span>Generate More Images</span>
-                  </>
-                )}
-              </button>
-            )}
           </div>
           <ImageGrid images={generatedImages} />
         </div>
@@ -533,48 +431,57 @@ export const GenerateImagePage: FC = () => {
       {/* Modal for Visual Element Prompt Ideas */}
       <Modal isOpen={isVisualElementsModalOpen} onClose={() => setIsVisualElementsModalOpen(false)} title={'Visual Element Ideas'}>
         <div className='flex flex-col gap-4'>
-          <div className='flex gap-4'>
-            <div className='flex-1 space-y-2'>
-              <div className='flex items-center justify-between'>
-                <h3 className='text-lg font-medium'>Proposed Ideas</h3>
-                <button
-                  onClick={async () => {
-                    if (!imageTemplateId || !selectedImageTemplate?.id) {
-                      throw new Error('Image template is required');
-                    }
-                    try {
-                      setIsGeneratingAdditionalVisualElements(true);
-                      const newlyDiscardedVisualElements = visualElementPromptIdeas.filter((el) => !el.isChecked);
-                      setDiscardedVisualElements((prev) => [...prev, ...newlyDiscardedVisualElements]);
-                      const { visualElements: additionalVisualElements } = await generateAdditionalVisualElements({
-                        visualElements: [...visualElementPromptIdeas, ...discardedVisualElements],
-                        imageTemplateId: selectedImageTemplate.id,
-                        title: postTopic,
-                        keywords,
-                      });
-                      const checkedVisualElements = visualElementPromptIdeas.filter((el) => el.isChecked);
-                      setVisualElementPromptIdeas([...checkedVisualElements, ...additionalVisualElements]);
-                    } catch (error) {
-                      console.error('Failed to generate additional visual elements:', error);
-                    } finally {
-                      setIsGeneratingAdditionalVisualElements(false);
-                    }
-                  }}
-                  disabled={isGeneratingAdditionalVisualElements}
-                  className='flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50'
-                >
-                  {isGeneratingAdditionalVisualElements ? <FaSpinner className='h-4 w-4 animate-spin' /> : <FaLightbulb className='h-4 w-4' />}
-                  <span>Get Different Ideas</span>
-                </button>
+          <div className='space-y-4'>
+            <div className='flex items-center justify-between'>
+              <div className='flex items-center gap-2'>
+                <span className='text-md text-gray-800'>
+                  Select {numOutputs} {numOutputs === 1 ? 'element' : 'elements'}
+                </span>
               </div>
-              <div className='flex flex-wrap gap-3 p-4 dark:bg-gray-800 rounded-lg max-h-[600px] overflow-y-auto'>
-                <div className='flex flex-col w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-dashed border-yellow-500 dark:border-yellow-500'>
+              <button
+                onClick={async () => {
+                  if (!imageTemplateId || !selectedImageTemplate?.id) {
+                    throw new Error('Image template is required');
+                  }
+                  try {
+                    setIsGeneratingAdditionalVisualElements(true);
+                    const newlyDiscardedVisualElements = visualElementPromptIdeas.filter((el) => !el.isChecked);
+                    setDiscardedVisualElements((prev) => [...prev, ...newlyDiscardedVisualElements]);
+                    const { visualElements: additionalVisualElements } = await generateAdditionalVisualElements({
+                      visualElements: [...visualElementPromptIdeas, ...discardedVisualElements],
+                      imageTemplateId: selectedImageTemplate.id,
+                      title: postTopic,
+                    });
+                    const checkedVisualElements = visualElementPromptIdeas.filter((el) => el.isChecked);
+                    setVisualElementPromptIdeas([...checkedVisualElements, ...additionalVisualElements]);
+                  } catch (error) {
+                    console.error('Failed to generate additional visual elements:', error);
+                  } finally {
+                    setIsGeneratingAdditionalVisualElements(false);
+                  }
+                }}
+                disabled={isGeneratingAdditionalVisualElements}
+                className='flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50'
+              >
+                {isGeneratingAdditionalVisualElements ? <FaSpinner className='h-4 w-4 animate-spin' /> : <FaLightbulb className='h-4 w-4' />}
+                <span>Get Different Ideas</span>
+              </button>
+            </div>
+
+            <div className='flex flex-wrap gap-3 p-4 dark:bg-gray-800 rounded-lg max-h-[600px] overflow-y-auto'>
+              <div className='flex flex-col justify-between items-end gap-2 w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-dashed border-yellow-500 dark:border-yellow-500'>
+                <div className='group relative'>
                   <input
                     type='text'
-                    placeholder='Add element...'
-                    className='w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-yellow-500 focus:outline-none'
+                    placeholder='Add element'
+                    className=' w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-yellow-500 focus:outline-none'
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                        const checkedCount = visualElementPromptIdeas.filter((el) => el.isChecked).length;
+                        if (checkedCount >= numOutputs) {
+                          toast.error(`You can only select up to ${numOutputs} elements`);
+                          return;
+                        }
                         const newElement = {
                           visualElement: e.currentTarget.value.trim(),
                           isChecked: true,
@@ -585,58 +492,52 @@ export const GenerateImagePage: FC = () => {
                       }
                     }}
                   />
+                  <Tooltip text='Add your own visual element idea to the list.' show={true} />
                 </div>
+                <button className='flex items-center gap-2 text-sm rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'>
+                  <FaPlus className='h-4 w-4' />
+                </button>
+              </div>
 
-                {visualElementPromptIdeas
-                  .filter((el) => !el.isChecked)
-                  .map((idea) => (
-                    <div
-                      key={idea.visualElement}
-                      className={cn(
-                        'flex flex-col w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-dashed border-gray-200 dark:border-gray-600 cursor-pointer hover:border-yellow-500 dark:hover:border-yellow-500 transition-colors',
-                        isGeneratingAdditionalVisualElements && 'opacity-50 cursor-not-allowed'
-                      )}
-                      onClick={() => setVisualElementPromptIdeas(visualElementPromptIdeas.map((el) => (el.visualElement === idea.visualElement ? { ...el, isChecked: true } : el)))}
-                    >
-                      <span className='font-medium text-sm'>{idea.visualElement}</span>
+              {visualElementPromptIdeas.map((idea) => (
+                <div
+                  key={idea.visualElement}
+                  className={cn(
+                    'flex flex-col w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border cursor-pointer transition-colors relative',
+                    idea.isChecked ? 'border-green-500 dark:border-green-500' : 'border-gray-200 dark:border-gray-600 hover:border-yellow-500 dark:hover:border-yellow-500',
+                    (isGeneratingAdditionalVisualElements || (!idea.isChecked && visualElementPromptIdeas.filter((el) => el.isChecked).length >= numOutputs)) && 'opacity-50 cursor-not-allowed'
+                  )}
+                  onClick={() => {
+                    if (isGeneratingAdditionalVisualElements) return;
+
+                    const checkedCount = visualElementPromptIdeas.filter((el) => el.isChecked).length;
+                    if (!idea.isChecked && checkedCount >= numOutputs) {
+                      toast.error(`You can only select up to ${numOutputs} elements`);
+                      return;
+                    }
+
+                    setVisualElementPromptIdeas(visualElementPromptIdeas.map((el) => (el.visualElement === idea.visualElement ? { ...el, isChecked: !el.isChecked } : el)));
+                  }}
+                >
+                  <span className='font-medium text-sm pr-6'>{idea.visualElement}</span>
+                  {idea.isChecked && (
+                    <div className='absolute top-2 right-2'>
+                      <FaCheck className='h-4 w-4 text-green-500' />
                     </div>
-                  ))}
-              </div>
-            </div>
-
-            <div className='w-px bg-gray-200 dark:bg-gray-700'></div>
-
-            <div className='flex-1 '>
-              <div className='flex items-center'>
-                <h3 className='text-lg font-medium'>Approved Elements</h3>
-              </div>
-              <div className='mt-4  dark:bg-gray-800 rounded-lg'>
-                <div className='space-y-2 p-4'>
-                  <div className='flex flex-wrap gap-3 max-h-[600px] overflow-y-auto'>
-                    {visualElementPromptIdeas
-                      .filter((el) => el.isChecked)
-                      .map((idea) => (
-                        <div key={idea.visualElement} className='flex w-[155px] p-3 bg-white dark:bg-gray-700 rounded-lg shadow-sm border border-gray-200 dark:border-gray-600'>
-                          <div className='flex justify-between gap-2 items-start w-full'>
-                            <span className='font-medium text-sm'>{idea.visualElement}</span>
-                            <button
-                              onClick={() => setVisualElementPromptIdeas(visualElementPromptIdeas.map((el) => (el.visualElement === idea.visualElement ? { ...el, isChecked: false } : el)))}
-                              className='text-gray-400 hover:text-red-500 transition-colors'
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+                  )}
                 </div>
-              </div>
+              ))}
             </div>
           </div>
 
           <div className='flex justify-end'>
             <button
               onClick={() => {
+                const checkedCount = visualElementPromptIdeas.filter((el) => el.isChecked).length;
+                if (checkedCount < numOutputs) {
+                  toast.error(`Please select at least ${numOutputs} visual element ideas`);
+                  return;
+                }
                 handleGenerateAndSetImages();
                 setIsVisualElementsModalOpen(false);
               }}
@@ -655,27 +556,62 @@ export const GenerateImagePage: FC = () => {
   );
 };
 
+interface TooltipProps {
+  text: string;
+  show: boolean;
+  position?: 'top' | 'bottom' | 'left' | 'right';
+}
+
+const Tooltip: FC<TooltipProps> = ({ text, show, position = 'bottom' }) => {
+  if (!show) return null;
+
+  const positionClasses = {
+    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
+    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
+  };
+
+  const arrowClasses = {
+    top: 'top-full left-1/2 -translate-x-1/2 border-t-[8px] border-t-black/90 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent',
+    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-[8px] border-b-black/90 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent',
+    left: 'left-full top-1/2 -translate-y-1/2 border-l-[8px] border-l-black/90 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent',
+    right: 'right-full top-1/2 -translate-y-1/2 border-r-[8px] border-r-black/90 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent',
+  };
+
+  return (
+    <div className={`absolute ${positionClasses[position]} z-10 hidden group-hover:block w-48`}>
+      <div className='relative bg-black/90 rounded-lg shadow-lg p-3'>
+        <div className={`absolute w-0 h-0 ${arrowClasses[position]}`} />
+        <p className='text-sm text-white'>{text}</p>
+      </div>
+    </div>
+  );
+};
+
 interface LoadingButtonProps {
   onClick: () => void;
   disabled: boolean;
   isLoading: boolean;
   text: string;
+  loadingText?: string;
   className?: string;
 }
 
-export const LoadingButton: FC<LoadingButtonProps> = ({ onClick, disabled, isLoading, text, className }) => {
+export const LoadingButton: FC<LoadingButtonProps> = ({ onClick, disabled, isLoading, text, loadingText = 'Generating...', className }) => {
   return (
     <button
       onClick={onClick}
       disabled={disabled || isLoading}
-      className={cn('w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center', className)}
+      className={cn('w-full rounded bg-yellow-500 px-4 py-2 text-white hover:bg-yellow-600 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2', className)}
     >
       {isLoading ? (
         <>
-          <svg className='animate-spin -ml-1 mr-3 h-5 w-5 text-white' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+          <svg className='animate-spin h-5 w-5 text-white' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
             <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
             <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
           </svg>
+          <span>{loadingText}</span>
         </>
       ) : (
         text
@@ -692,7 +628,7 @@ interface SettingsButtonProps {
   setIsUsingBrandColors: (value: boolean) => void;
 }
 
-const BrandIdentityButton: FC<SettingsButtonProps> = ({ brandTheme, isUsingBrandSettings, isUsingBrandColors, setIsUsingBrandSettings, setIsUsingBrandColors }) => {
+export const BrandIdentityButton: FC<SettingsButtonProps> = ({ brandTheme, isUsingBrandSettings, isUsingBrandColors, setIsUsingBrandSettings, setIsUsingBrandColors }) => {
   const navigate = useNavigate();
   return (
     <div className='relative'>
@@ -707,12 +643,7 @@ const BrandIdentityButton: FC<SettingsButtonProps> = ({ brandTheme, isUsingBrand
             >
               <FaRainbow className='h-4 w-4' />
               <span className='text-sm'>Brand Identity</span>
-              {!open && (
-                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
-                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
-                  <p className='text-sm text-white'>Set and use the preferred defaults for your brand identity</p>
-                </div>
-              )}
+              <Tooltip text='Set and use the preferred defaults for your brand identity' show={!open} />
             </Menu.Button>
             <Menu.Items className='absolute z-20 mt-2 w-56 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
               <div className='p-1'>
@@ -775,12 +706,7 @@ export const AspectRatioButton: FC<AspectRatioButtonProps> = ({ selectedPlatform
             <Menu.Button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'>
               <FaExpand className='h-4 w-4' />
               <span className='text-sm'>Aspect Ratio</span>
-              {!open && (
-                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-52 p-3 bg-black/90 rounded-lg shadow-lg'>
-                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
-                  <p className='text-sm text-white'>Choose which platform you're creating this banner for. Note: you can export the final image for multiple blog formats.</p>
-                </div>
-              )}
+              <Tooltip text="Choose which platform you're creating this banner for. Note: you can export the final image for multiple blog formats." show={!open} />
             </Menu.Button>
             <Menu.Items className='absolute z-20 mt-2 w-56 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
               <div className='p-1'>
@@ -823,12 +749,7 @@ export const OutputsButton: FC<OutputsButtonProps> = ({ numOutputs, setNumOutput
             <Menu.Button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'>
               <FaImages className='h-4 w-4' />
               <span className='text-sm'>Outputs: {numOutputs}</span>
-              {!open && (
-                <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
-                  <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
-                  <p className='text-sm text-white'>Choose how many image variations to generate at once</p>
-                </div>
-              )}
+              <Tooltip text='Choose how many image variations to generate at once' show={!open} />
             </Menu.Button>
             <Menu.Items className='absolute z-20 mt-2 w-40 origin-top-left rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 focus:outline-none'>
               <div className='p-1'>
@@ -852,23 +773,6 @@ export const OutputsButton: FC<OutputsButtonProps> = ({ numOutputs, setNumOutput
     </div>
   );
 };
-
-interface StyleButtonProps {
-  selectedImageTemplate: any;
-}
-
-export const StyleButton: FC<StyleButtonProps> = ({ selectedImageTemplate }) => (
-  <div className='relative'>
-    <button className='group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-500'>
-      <FaPalette className='h-4 w-4' />
-      <span className='text-sm'>Style: {selectedImageTemplate?.name || 'None'}</span>
-      <div className='absolute top-full left-1/2 -translate-x-1/2 mt-4 z-10 hidden group-hover:block w-48 p-3 bg-black/90 rounded-lg shadow-lg'>
-        <div className='absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[8px] border-b-black/90'></div>
-        <p className='text-sm text-white'>{selectedImageTemplate ? "This is the image style you'd like your banner to have" : 'Please choose an image style on the left sidebar'}</p>
-      </div>
-    </button>
-  </div>
-);
 
 interface SettingsButtonsProps {
   brandTheme?: any;
@@ -895,7 +799,6 @@ export const SettingsButtons: FC<SettingsButtonsProps> = ({
   setSelectedPlatform,
   numOutputs,
   setNumOutputs,
-  selectedImageTemplate,
 }) => (
   <div className='flex items-center justify-between gap-2'>
     <div className='flex items-center gap-2'>
@@ -909,6 +812,5 @@ export const SettingsButtons: FC<SettingsButtonsProps> = ({
       <AspectRatioButton selectedPlatform={selectedPlatform} setSelectedAspectRatio={setSelectedAspectRatio} setSelectedPlatform={setSelectedPlatform} />
       <OutputsButton numOutputs={numOutputs} setNumOutputs={setNumOutputs} />
     </div>
-    <StyleButton selectedImageTemplate={selectedImageTemplate} />
   </div>
 );

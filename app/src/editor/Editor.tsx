@@ -17,7 +17,6 @@ interface EditorProps {
 
 const Editor: FC<EditorProps> = ({ children }) => {
   const [templates, setTemplates] = useState<ImageTemplate[]>([]);
-  const { data: user, isLoading: isUserLoading } = useAuth();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -31,6 +30,15 @@ const Editor: FC<EditorProps> = ({ children }) => {
   useEffect(() => {
     if (imageTemplates) {
       setTemplates(imageTemplates);
+      if (!imageTemplateId) {
+        const bestTemplate = imageTemplates.find((template) => template.name === 'sketchy');
+        if (bestTemplate) {
+          setSearchParams((params) => {
+            params.set('imageTemplateId', bestTemplate.id);
+            return params;
+          });
+        }
+      }
     }
     if (imageTemplatesError) {
       console.error('Error fetching image templates:', imageTemplatesError);

@@ -103,9 +103,9 @@ const styleGuidelines = `
 `;
 
 export const getBannerIdeasFromTitle: GetBannerIdeasFromTitle<
-  { title: string; keywords: string[]; imageTemplateId: ImageTemplate['id']; numOfVisualElementIdeas: number },
+  { title: string; imageTemplateId: ImageTemplate['id']; numOfVisualElementIdeas: number },
   { mainIdeas: string; visualElements: VisualElementPromptIdea[] }
-> = async ({ title, keywords, imageTemplateId, numOfVisualElementIdeas = 10 }, context) => {
+> = async ({ title, imageTemplateId, numOfVisualElementIdeas = 10 }, context) => {
   if (openai instanceof Error) {
     throw openai;
   }
@@ -160,16 +160,16 @@ export const getBannerIdeasFromTitle: GetBannerIdeasFromTitle<
       {
         role: 'system',
         content: `
-        You will be given a title and keywords of a social media or blog post.
+        You will be given a title of a social media or blog post.
         Your job is to brainstorm and return a list of ${numOfVisualElementIdeas} concepts and visual elements that could be used within an image generation prompt to create a banner for the post.
-        First, you will think about this title and keywords to determine the main concepts and ideas of the post.
+        First, you will think about this title to determine the main concepts and ideas of the post.
         Then, with the post's main ideas in mind, use the following style guidelines to propose ${numOfVisualElementIdeas} visual elements that could be used within an image generation prompt: ${styleGuidelines}
         `,
       },
       {
         role: 'user',
         content: `
-        Here is the title and keywords of a social media or blog post. Title: ${title}. Keywords: ${keywords.join(', ')}.`,
+        Here is the title of a social media or blog post. Title: ${title}.`,
       },
     ],
     tools,
@@ -217,9 +217,9 @@ export const getBannerIdeasFromTitle: GetBannerIdeasFromTitle<
 };
 
 export const generateAdditionalVisualElements: GenerateAdditionalVisualElements<
-  { visualElements: VisualElementPromptIdea[]; imageTemplateId: ImageTemplate['id']; title: string; keywords: string[] },
+  { visualElements: VisualElementPromptIdea[]; imageTemplateId: ImageTemplate['id']; title: string },
   { visualElements: VisualElementPromptIdea[] }
-> = async ({ visualElements, imageTemplateId, title, keywords }, context) => {
+> = async ({ visualElements, imageTemplateId, title }, context) => {
   if (openai instanceof Error) {
     throw openai;
   }
@@ -240,7 +240,7 @@ export const generateAdditionalVisualElements: GenerateAdditionalVisualElements<
       {
         role: 'system',
         content: `You are an expert social media and blog post image banner prompt engineer. 
-        You will be given a title and keywords of a social media or blog post.
+        You will be given a title of a social media or blog post.
         You will also be given already reviewed visual elements and concepts that may be used within a generation prompt to create a banner image for the post.
         Your job is to return a list of ${numOfVisualElementIdeasToGenerate} new, distinct, and relevant visual elements and concepts that could be used within a generation prompt to create a banner image for the post.
         Use the following style guidelines to propose visual elements: ${styleGuidelines}
@@ -251,7 +251,7 @@ export const generateAdditionalVisualElements: GenerateAdditionalVisualElements<
       {
         role: 'user',
         content: `
-        Here is the title and keywords of a social media or blog post. Title: ${title}. Keywords: ${keywords.join(', ')}.
+        Here is the title of a social media or blog post. Title: ${title}.
         Here are the already reviewed (approved or discarded) visual elements and concepts: ${visualElements.map((visualElement) => `${visualElement.visualElement}`).join('\n')}.`,
       },
     ],
@@ -363,7 +363,7 @@ const returnPromptsMatchingStyleGuidelines = async ({
   mainIdeas: string;
   numOutputs: number;
   userSubmittedVisualElements: VisualElementPromptIdea[];
-}): Promise<{ mostSuitablePromptsArray: { prompt: string }[]; lessSuitablePromptsArray: { prompt: string }[] }> => {
+}): Promise<{ mostSuitablePromptsArray: { prompt: string }[]; }> => {
   if (openai instanceof Error) {
     throw openai;
   }
@@ -375,8 +375,8 @@ const returnPromptsMatchingStyleGuidelines = async ({
         role: 'system',
         content: `You are an expert image generation prompt curator. You will be given a list of ${
           numOutputs * 2
-        } image prompts, the title of a social media or blog post, and the main ideas of the post. Your job is to separate the ${numOutputs} best prompts from the ${numOutputs} less suitable prompts based on the title and main ideas of the post while the following the provided style guidelines.
-        If a visual element is user submitted, favor it in the more suitable prompts over non-user submitted visual elements.
+        } image prompts, the title of a social media or blog post, the main ideas of the post, and the selected visual element ideas that were used to generate the prompts. Your job is to select the ${numOutputs} best prompts from the prompt array based on the title, main ideas of the post, and the selected visual element ideas while the following the provided style guidelines.
+        Return prompts that are different from each other and do not include the same visual element ideas. Do not return any prompts that do not include a selected visual element idea.
         `,
       },
       {
@@ -384,7 +384,7 @@ const returnPromptsMatchingStyleGuidelines = async ({
         content: `Here is the list of image prompts: ${promptArray.map((p, index) => `- ${index + 1}. ${p.prompt}`).join('\n')}. 
         Here is the title of the post: ${title} and the main ideas of the post: ${mainIdeas}. 
         Here are the style guidelines: ${styleGuidelines}
-        Here are the user submitted visual elements: ${userSubmittedVisualElements.map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}`).join('\n')}`,
+        Here are the selected visual element ideas that were used to generate the prompts: ${userSubmittedVisualElements}`,
       },
     ],
     tools: [
@@ -406,16 +406,8 @@ const returnPromptsMatchingStyleGuidelines = async ({
                   required: ['prompt'],
                 },
               },
-              lessSuitablePromptsArray: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: { prompt: { type: 'string' } },
-                  required: ['prompt'],
-                },
-              },
             },
-            required: ['mostSuitablePromptsArray', 'lessSuitablePromptsArray'],
+            required: ['mostSuitablePromptsArray'],
           },
         },
       },
@@ -434,9 +426,9 @@ const returnPromptsMatchingStyleGuidelines = async ({
 };
 
 export const generateAndRefinePrompts: GenerateAndRefinePrompts<
-  { title: string; keywords: string[]; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings: boolean; isUsingBrandColors: boolean; numOutputs: number; mainIdeas: string; visualElements: VisualElementPromptIdea[] },
-  { mostSuitablePromptsArray: { prompt: string }[]; lessSuitablePromptsArray: { prompt: string }[] }
-> = async ({ title, keywords, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context) => {
+  { title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings: boolean; isUsingBrandColors: boolean; numOutputs: number; mainIdeas: string; visualElements: VisualElementPromptIdea[] },
+  { mostSuitablePromptsArray: { prompt: string }[] }
+> = async ({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
@@ -504,7 +496,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           You are an expert blog and social media image prompt engineer. 
           You will be given a title of a post, along with the posts's main concepts, some suggested visual elements, and an example prompt based on the image style. 
           Your job is to create image generation prompts to accompany the post by following these style guidelines: ${styleGuidelines}
-          Prioritize the user submitted visual elements over the other suggested visual elements when creating the prompts.
+          All prompts should include at least one of the visual elements from the provided list.
           Use the example prompt as a guide for how to formulate the prompts. `,
         },
         {
@@ -512,7 +504,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           content: `
           Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}.
           Use this brainstorming list of the post's main concepts and visual elements to create the prompts: ${mainIdeas} ${visualElements
-            .map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}: ${visualElement.isUserSubmitted ? 'User Submitted' : ''}`)
+            .map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}`)
             .join('\n')}.
           ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
           ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
