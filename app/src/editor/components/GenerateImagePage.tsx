@@ -3,6 +3,7 @@ import type { FluxDevAspectRatio } from '../../banner/imageSettings';
 import type { GeneratedImageData, ImageTemplate, User } from 'wasp/entities';
 import type { VisualElementPromptIdea } from '../../banner/operations';
 
+import { v4 as uuidv4 } from 'uuid';
 import { Tab } from '@headlessui/react';
 import { useEffect, useState } from 'react';
 import Editor from '../Editor';
@@ -68,6 +69,7 @@ export const GenerateImagePage: FC = () => {
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<FluxDevAspectRatio>(PlatformAspectRatio['Twitter Landscape']);
   const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
   const [isGeneratingImagesButtonText, setIsGeneratingImagesButtonText] = useState('Generating...');
+  const [userSubmittedVisualElementIdea, setUserSubmittedVisualElementIdea] = useState('');
 
   const [searchParams, setSearchParams] = useSearchParams();
   const generateImageBy = searchParams.get('generateBy') as GenerateImageSource;
@@ -280,6 +282,21 @@ export const GenerateImagePage: FC = () => {
     }
   };
 
+  const handleAddUserSubmittedVisualElement = (visualElementIdea: string) => {
+    const checkedCount = visualElementPromptIdeas.filter((el) => el.isChecked).length;
+    if (checkedCount >= numOutputs) {
+      toast.error(`You can only select up to ${numOutputs} elements`);
+      return;
+    }
+    const newElement = {
+      visualElement: visualElementIdea,
+      isChecked: true,
+      isUserSubmitted: true,
+      visualElementId: uuidv4(),
+    };
+    setVisualElementPromptIdeas((prev) => [...prev, newElement]);
+  };
+
   return (
     <Editor>
       <Tab.Group selectedIndex={generateImageBy === 'prompt' ? 1 : 0} onChange={handleTabChange}>
@@ -457,27 +474,29 @@ export const GenerateImagePage: FC = () => {
                   <input
                     type='text'
                     placeholder='Add element'
+                    value={userSubmittedVisualElementIdea}
+                    onChange={(e) => setUserSubmittedVisualElementIdea(e.target.value)}
                     className=' w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 focus:border-yellow-500 focus:outline-none'
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                        const checkedCount = visualElementPromptIdeas.filter((el) => el.isChecked).length;
-                        if (checkedCount >= numOutputs) {
-                          toast.error(`You can only select up to ${numOutputs} elements`);
-                          return;
-                        }
-                        const newElement = {
-                          visualElement: e.currentTarget.value.trim(),
-                          isChecked: true,
-                          isUserSubmitted: true,
-                        };
-                        setVisualElementPromptIdeas((prev) => [...prev, newElement]);
+                      const visualElementIdea = e.currentTarget.value.trim();
+                      if (e.key === 'Enter' && visualElementIdea) {
+                        handleAddUserSubmittedVisualElement(visualElementIdea);
                         e.currentTarget.value = '';
+                        setUserSubmittedVisualElementIdea('');
                       }
                     }}
                   />
                   <Tooltip text='Add your own visual element idea to the list.' show={true} />
                 </div>
-                <button className='flex items-center gap-2 text-sm rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'>
+                <button
+                  onClick={() => {
+                    if (userSubmittedVisualElementIdea.length > 0) {
+                      handleAddUserSubmittedVisualElement(userSubmittedVisualElementIdea);
+                      setUserSubmittedVisualElementIdea('');
+                    }
+                  }}
+                  className='flex items-center gap-2 text-sm rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
+                >
                   <FaPlus className='h-4 w-4' />
                 </button>
               </div>

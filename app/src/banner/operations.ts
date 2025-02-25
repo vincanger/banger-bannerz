@@ -90,7 +90,7 @@ export const generatePromptFromImage: GeneratePromptFromImage<{ base64Data: stri
   }
 };
 
-export type VisualElementPromptIdea = { visualElement: string; visualElementDescription?: string; isChecked?: boolean; isUserSubmitted?: boolean };
+export type VisualElementPromptIdea = { visualElement: string; visualElementDescription?: string; isChecked?: boolean; isUserSubmitted?: boolean; visualElementId?: string };
 
 const styleGuidelines = `
 - Avoid overly abstract concepts; aim for ideas that clearly illustrate the post's title in a way that can be directly translated into an image.
@@ -142,6 +142,7 @@ export const getBannerIdeasFromTitle: GetBannerIdeasFromTitle<
                     description: 'A description of the visual element idea and reasoning for why the this visual element would be a good fit for the image style and the main ideas of the post',
                   },
                 },
+                required: ['visualElement', 'visualElementDescription'],
               },
             },
           },
@@ -358,12 +359,12 @@ const returnPromptsMatchingStyleGuidelines = async ({
   numOutputs,
   userSubmittedVisualElements,
 }: {
-  promptArray: { prompt: string }[];
+  promptArray: { prompt: string; visualElementId: string }[];
   title: string;
   mainIdeas: string;
   numOutputs: number;
   userSubmittedVisualElements: VisualElementPromptIdea[];
-}): Promise<{ mostSuitablePromptsArray: { prompt: string }[]; }> => {
+}): Promise<{ mostSuitablePromptsArray: { prompt: string; visualElementId: string }[] }> => {
   if (openai instanceof Error) {
     throw openai;
   }
@@ -376,7 +377,7 @@ const returnPromptsMatchingStyleGuidelines = async ({
         content: `You are an expert image generation prompt curator. You will be given a list of ${
           numOutputs * 2
         } image prompts, the title of a social media or blog post, the main ideas of the post, and the selected visual element ideas that were used to generate the prompts. Your job is to select the ${numOutputs} best prompts from the prompt array based on the title, main ideas of the post, and the selected visual element ideas while the following the provided style guidelines.
-        Return prompts that are different from each other and do not include the same visual element ideas. Do not return any prompts that do not include a selected visual element idea.
+        Return one prompt per visualElementId.
         `,
       },
       {
@@ -402,8 +403,9 @@ const returnPromptsMatchingStyleGuidelines = async ({
                   type: 'object',
                   properties: {
                     prompt: { type: 'string' },
+                    visualElementId: { type: 'string', description: 'The id of the visual element idea that is included in the prompt' },
                   },
-                  required: ['prompt'],
+                  required: ['prompt', 'visualElementId'],
                 },
               },
             },
@@ -432,31 +434,47 @@ export const generateAndRefinePrompts: GenerateAndRefinePrompts<
   if (!context.user) {
     throw new HttpError(401);
   }
+  
   if (context.user.credits < numOutputs) {
     throw new HttpError(402, 'You do not have enough credits to generate images');
   }
-  const userSubmittedVisualElements = visualElements.filter((visualElement) => visualElement.isUserSubmitted);
-  const { promptArray } = await generatePromptFromTitle({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context);
-  return await returnPromptsMatchingStyleGuidelines({ promptArray, title, mainIdeas, numOutputs, userSubmittedVisualElements });
+
+  
+  try {
+    const result = await context.entities.User.update({
+      where: { 
+        id: context.user.id,
+        credits: { gte: numOutputs }
+      },
+      data: { credits: { decrement: numOutputs } },
+    });
+    
+    if (!result) {
+      throw new HttpError(402, 'Insufficient credits');
+    }
+    
+    const { promptArray } = await generatePromptFromTitle({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context);
+    return await returnPromptsMatchingStyleGuidelines({ promptArray, title, mainIdeas, numOutputs, userSubmittedVisualElements: visualElements });
+  } catch (error: any) {
+    if (error?.statusCode !== 402 && context.user) {
+      await context.entities.User.update({
+        where: { id: context.user.id },
+        data: { credits: { increment: numOutputs } },
+      });
+    }
+    throw error;
+  }
 };
 
 export const generatePromptFromTitle: GeneratePromptFromTitle<
   { title: string; imageTemplateId: ImageTemplate['id']; isUsingBrandSettings?: boolean; isUsingBrandColors?: boolean; numOutputs: number; mainIdeas: string; visualElements: VisualElementPromptIdea[] },
-  { promptArray: { prompt: string }[] }
+  { promptArray: { prompt: string; visualElementId: string }[] }
 > = async ({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context) => {
   if (!context.user) {
     throw new HttpError(401);
   }
-  if (!context.user.credits) {
-    throw new HttpError(402, 'You do not have enough credits to generate images');
-  }
-
+  
   try {
-    await context.entities.User.update({
-      where: { id: context.user.id },
-      data: { credits: { decrement: numOutputs } },
-    });
-
     if (openai instanceof Error) {
       throw openai;
     }
@@ -496,7 +514,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           You are an expert blog and social media image prompt engineer. 
           You will be given a title of a post, along with the posts's main concepts, some suggested visual elements, and an example prompt based on the image style. 
           Your job is to create image generation prompts to accompany the post by following these style guidelines: ${styleGuidelines}
-          All prompts should include at least one of the visual elements from the provided list.
+          For each visual element idea, create two different prompts that include the visual element idea in it.
           Use the example prompt as a guide for how to formulate the prompts. `,
         },
         {
@@ -504,7 +522,7 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           content: `
           Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}.
           Use this brainstorming list of the post's main concepts and visual elements to create the prompts: ${mainIdeas} ${visualElements
-            .map((visualElement) => `${visualElement.visualElement}: ${visualElement.visualElementDescription ?? ''}`)
+            .map((visualElement, idx) => `${idx + 1}. ${visualElement.visualElement} (uuid: ${visualElement.visualElementId}) ${visualElement.visualElementDescription ?? ''}`)
             .join('\n')}.
           ${colorPalettePrompt ? `. ${colorPalettePrompt}` : ''} 
           ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
@@ -531,7 +549,16 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
                         type: 'string',
                         description: 'the image generation prompt',
                       },
+                      visualElement: {
+                        type: 'string',
+                        description: 'the visual element idea that is included in the prompt',
+                      },
+                      visualElementId: {
+                        type: 'string',
+                        description: 'the uuid of the visual element idea that is included in the prompt',
+                      },
                     },
+                    required: ['prompt', 'visualElement', 'visualElementId'],
                   },
                 },
               },
@@ -551,12 +578,6 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
 
     return JSON.parse(result);
   } catch (error: any) {
-    if (!!context.user && error?.statusCode !== 402) {
-      await context.entities.User.update({
-        where: { id: context.user.id },
-        data: { credits: { increment: numOutputs } },
-      });
-    }
     throw error;
   }
 };
@@ -713,6 +734,10 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
     throw new HttpError(401, 'User not found');
   }
 
+  if (context.user.credits < numOutputs) {
+    throw new HttpError(402, 'You do not have enough credits to generate images');
+  }
+
   const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
   if (!imageTemplate.loraUrl) {
     throw new HttpError(400, 'Lora weights URL is required');
@@ -726,44 +751,61 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
 
   console.log('combinedPrompt: ', combinedPrompt);
 
-  const output = await generateImageFromLora({
-    prompt: combinedPrompt,
-    loraWeights: imageTemplate.loraUrl,
-    seed: useSeed,
-    aspectRatio,
-    numOutputs,
-  });
+  try {
+    const userWithCredits = await context.entities.User.update({
+      where: { 
+        id: context.user.id,
+        credits: { gte: numOutputs }
+      },
+      data: { credits: { decrement: numOutputs } },
+    });
+    
+    if (!userWithCredits) {
+      throw new HttpError(402, 'Insufficient credits');
+    }
 
-  const generatedImages = await Promise.all(
-    output.map((file) =>
-      context.entities.GeneratedImageData.create({
-        data: {
-          url: file.url().href,
-          seed: useSeed,
-          postTopic,
-          userPrompt,
-          style: `flux-dev-lora-${imageTemplate.loraUrl}`,
-          resolution: aspectRatio,
-          imageTemplate: {
-            connect: { id: imageTemplate.id },
+    const output = await generateImageFromLora({
+      prompt: combinedPrompt,
+      loraWeights: imageTemplate.loraUrl,
+      seed: useSeed,
+      aspectRatio,
+      numOutputs,
+    });
+
+    const generatedImages = await Promise.all(
+      output.map((file) =>
+        context.entities.GeneratedImageData.create({
+          data: {
+            url: file.url().href,
+            seed: useSeed,
+            postTopic,
+            userPrompt,
+            style: `flux-dev-lora-${imageTemplate.loraUrl}`,
+            resolution: aspectRatio,
+            imageTemplate: {
+              connect: { id: imageTemplate.id },
+            },
+            user: {
+              connect: { id: context.user!.id },
+            },
           },
-          user: {
-            connect: { id: context.user!.id },
+          include: {
+            imageTemplate: true,
           },
-        },
-        include: {
-          imageTemplate: true,
-        },
-      })
-    )
-  );
+        })
+      )
+    );
 
-  await context.entities.User.update({
-    where: { id: context.user.id },
-    data: { credits: { decrement: numOutputs } },
-  });
-
-  return generatedImages;
+    return generatedImages;
+  } catch (error: any) {
+    if (error?.statusCode !== 402 && context.user) {
+      await context.entities.User.update({
+        where: { id: context.user.id },
+        data: { credits: { increment: numOutputs } },
+      });
+    }
+    throw error;
+  }
 };
 
 export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, GeneratedImageDataWithTemplate[]> = async (_args, context) => {
