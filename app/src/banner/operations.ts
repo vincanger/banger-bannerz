@@ -758,6 +758,11 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
     )
   );
 
+  await context.entities.User.update({
+    where: { id: context.user.id },
+    data: { credits: { decrement: numOutputs } },
+  });
+
   return generatedImages;
 };
 
