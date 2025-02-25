@@ -10,6 +10,8 @@ export const ColorPicker: FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [colors, setColors] = useState<string[]>([]);
   const [activeColorIndex, setActiveColorIndex] = useState<number | undefined>(undefined);
+  const [inputValue, setInputValue] = useState<string>('');
+  const [isEditing, setIsEditing] = useState(false);
 
   const { data: brandTheme, isLoading: isBrandThemeLoading } = useQuery(getBrandThemeSettings);
 
@@ -20,6 +22,14 @@ export const ColorPicker: FC = () => {
     }
     setIsInitialized(true);
   }, [brandTheme, isBrandThemeLoading]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    
+    if (activeColorIndex !== undefined && colors[activeColorIndex]) {
+      setInputValue(colors[activeColorIndex]);
+    }
+  }, [activeColorIndex, colors, isEditing]);
 
   const debouncedUpdate = useCallback(
     debounce((newColors: string[]) => {
@@ -33,7 +43,7 @@ export const ColorPicker: FC = () => {
     if (JSON.stringify(colors) !== JSON.stringify(brandTheme?.colorScheme)) {
       debouncedUpdate(colors);
     }
-  }, [colors, brandTheme, isInitialized]);
+  }, [colors, brandTheme, isInitialized, debouncedUpdate]);
 
   const handleColorChange = (newColor: string) => {
     if (!colors || colors.length === 0) {
@@ -42,7 +52,6 @@ export const ColorPicker: FC = () => {
     } else {
       const newColors = colors.map((color, index) => (index === activeColorIndex ? newColor : color));
       setColors(newColors);
-      setActiveColorIndex(newColors.length - 1);
     }
   };
 
@@ -59,9 +68,28 @@ export const ColorPicker: FC = () => {
     setActiveColorIndex(newColors.length > 0 ? newColors.length - 1 : undefined);
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value;
+    
+    if (!value.startsWith('#')) {
+      value = '#' + value;
+    }
+    
+    if (value === '') {
+      value = '#';
+    }
+    
+    setInputValue(value);
+    
+    const isValidHex = /^#([0-9A-F]{3}){1,2}$/i.test(value);
+    if (isValidHex) {
+      handleColorChange(value);
+    }
+  };
+
   return (
     <div className='p-4'>
-      <h2 className='mb-4 text-lg font-semibold text-gray-900'>Brand Color Scheme</h2>
+      <h2 className='mb-4 text-xl font-semibold text-gray-900'>Brand Color Scheme</h2>
       <div className='space-y-4'>
 
         <div className='flex flex-wrap gap-2 mb-4'>
@@ -89,15 +117,37 @@ export const ColorPicker: FC = () => {
           </button>
         </div>
 
-        <div className='space-y-2'>
-          <HexColorPicker color={colors?.[activeColorIndex || 0]} onChange={handleColorChange} />
-          <input
-            type='text'
-            value={colors?.[activeColorIndex || 0]}
-            onChange={(e) => handleColorChange(e.target.value)}
-            className='mt-1 block w-[200px] rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
-          />
-        </div>
+        {activeColorIndex !== undefined && (
+          <div className='space-y-2'>
+            <HexColorPicker 
+              color={colors[activeColorIndex]} 
+              onChange={handleColorChange} 
+            />
+            <input
+              type='text'
+              value={inputValue}
+              onChange={handleInputChange}
+              onFocus={(e) => {
+                setIsEditing(true);
+                const val = e.target.value;
+                e.target.setSelectionRange(val.length, val.length);
+              }}
+              onBlur={(e) => {
+                setIsEditing(false);
+                let color = e.target.value;
+                if (color === '#') {
+                  color = '#000000';
+                } else if (color.length < 7 && color.length > 1) {
+                  color = color.padEnd(7, '0');
+                }
+                
+                handleColorChange(color);
+                setInputValue(color);
+              }}
+              className='mt-1 block w-[200px] rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-yellow-500 focus:outline-none focus:ring-yellow-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
+            />
+          </div>
+        )}
       </div>
     </div>
   );

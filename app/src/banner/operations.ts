@@ -766,8 +766,17 @@ export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, Gene
     throw new HttpError(401);
   }
 
+  const oneHourAgo = new Date();
+  oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+
   return await context.entities.GeneratedImageData.findMany({
-    where: { userId: context.user.id },
+    where: { 
+      userId: context.user.id,
+      OR: [
+        { createdAt: { gte: oneHourAgo } },
+        { saved: true }
+      ]
+    },
     include: {
       imageTemplate: true,
     },

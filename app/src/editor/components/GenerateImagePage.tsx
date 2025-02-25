@@ -1,6 +1,6 @@
 import type { FC } from 'react';
 import type { FluxDevAspectRatio } from '../../banner/imageSettings';
-import type { GeneratedImageData, ImageTemplate } from 'wasp/entities';
+import type { GeneratedImageData, ImageTemplate, User } from 'wasp/entities';
 import type { VisualElementPromptIdea } from '../../banner/operations';
 
 import { Tab } from '@headlessui/react';
@@ -20,13 +20,14 @@ import {
 import { ImageGrid } from './ImageGrid';
 import { Modal } from './Modal';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { FaEdit, FaHandSparkles, FaQuestionCircle, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight, FaSpinner, FaLightbulb, FaPlus, FaComments } from 'react-icons/fa';
+import { FaEdit, FaHandSparkles, FaCheck, FaRainbow, FaExpand, FaImages, FaArrowRight, FaSpinner, FaLightbulb, FaPlus, FaComments, FaCoins } from 'react-icons/fa';
 import { cn } from '../../client/cn';
 import { Menu } from '@headlessui/react';
 import { routes } from 'wasp/client/router';
 import { PlatformAspectRatio } from '../../banner/imageSettings';
 import { useAuth } from 'wasp/client/auth';
 import toast from 'react-hot-toast';
+import { AuthUser } from 'wasp/auth';
 
 export type GenerateImageSource = 'topic' | 'prompt';
 
@@ -63,11 +64,9 @@ export const GenerateImagePage: FC = () => {
   const [isVisualElementsModalOpen, setIsVisualElementsModalOpen] = useState(false);
   const [discardedVisualElements, setDiscardedVisualElements] = useState<VisualElementPromptIdea[]>([]);
   const [isGeneratingAdditionalVisualElements, setIsGeneratingAdditionalVisualElements] = useState(false);
-  const [lessSuitableImagePrompts, setLessSuitableImagePrompts] = useState<{ prompt: string }[]>([]);
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<FluxDevAspectRatio>(PlatformAspectRatio['Twitter Landscape']);
   const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
-  const [isGeneratingMoreImages, setIsGeneratingMoreImages] = useState(false);
   const [isGeneratingImagesButtonText, setIsGeneratingImagesButtonText] = useState('Generating...');
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -331,17 +330,13 @@ export const GenerateImagePage: FC = () => {
 
                 {/* Brand Settings Buttons with Dropdowns */}
                 <SettingsButtons
-                  brandTheme={brandTheme}
-                  isUsingBrandSettings={isUsingBrandSettings}
-                  isUsingBrandColors={isUsingBrandColors}
-                  setIsUsingBrandSettings={setIsUsingBrandSettings}
-                  setIsUsingBrandColors={setIsUsingBrandColors}
                   selectedPlatform={selectedPlatform}
                   setSelectedAspectRatio={setSelectedAspectRatio}
                   setSelectedPlatform={setSelectedPlatform}
                   numOutputs={numOutputs}
                   setNumOutputs={setNumOutputs}
                   selectedImageTemplate={selectedImageTemplate}
+                  user={user}
                 />
 
                 {/* Generate Button */}
@@ -357,14 +352,6 @@ export const GenerateImagePage: FC = () => {
 
             <Tab.Panel>
               <div className='space-y-4'>
-                {/* Instruction Tooltip */}
-                <div className='flex justify-end'>
-                  <div className='relative group'>
-                    <FaQuestionCircle className='h-5 w-5 text-gray-400 hover:text-yellow-500 cursor-help transition-colors duration-200' />
-                    <Tooltip text="Write your own custom prompt or choose a prompt from one of your recently generated images to create exactly what you're looking for." show={true} />
-                  </div>
-                </div>
-
                 {/* Recent Images Button */}
                 <button
                   onClick={() => setIsModalOpen(true)}
@@ -390,11 +377,7 @@ export const GenerateImagePage: FC = () => {
 
                 {/* Brand Settings Buttons with Dropdowns */}
                 <SettingsButtons
-                  brandTheme={brandTheme}
-                  isUsingBrandSettings={isUsingBrandSettings}
-                  isUsingBrandColors={isUsingBrandColors}
-                  setIsUsingBrandSettings={setIsUsingBrandSettings}
-                  setIsUsingBrandColors={setIsUsingBrandColors}
+                  user={user}
                   selectedPlatform={selectedPlatform}
                   setSelectedAspectRatio={setSelectedAspectRatio}
                   setSelectedPlatform={setSelectedPlatform}
@@ -416,7 +399,7 @@ export const GenerateImagePage: FC = () => {
         <div className='p-4'>
           <div className='flex items-center justify-between mb-4'>
             <p className='text-sm italic text-gray-600'>
-              The images below are temporary and will be <b>deleted after 24 hours</b> if they are not added to your library.
+              The images below are temporary and will be <b>deleted after 1 hour</b> if they are not added to your library.
             </p>
           </div>
           <ImageGrid images={generatedImages} />
@@ -775,11 +758,7 @@ export const OutputsButton: FC<OutputsButtonProps> = ({ numOutputs, setNumOutput
 };
 
 interface SettingsButtonsProps {
-  brandTheme?: any;
-  isUsingBrandSettings: boolean;
-  isUsingBrandColors: boolean;
-  setIsUsingBrandSettings: (value: boolean) => void;
-  setIsUsingBrandColors: (value: boolean) => void;
+  user: AuthUser | null | undefined;
   selectedPlatform: string;
   setSelectedAspectRatio: (ratio: FluxDevAspectRatio) => void;
   setSelectedPlatform: (platform: string) => void;
@@ -788,29 +767,17 @@ interface SettingsButtonsProps {
   selectedImageTemplate: any;
 }
 
-export const SettingsButtons: FC<SettingsButtonsProps> = ({
-  brandTheme,
-  isUsingBrandSettings,
-  isUsingBrandColors,
-  setIsUsingBrandSettings,
-  setIsUsingBrandColors,
-  selectedPlatform,
-  setSelectedAspectRatio,
-  setSelectedPlatform,
-  numOutputs,
-  setNumOutputs,
-}) => (
+export const SettingsButtons: FC<SettingsButtonsProps> = ({ user, selectedPlatform, setSelectedAspectRatio, setSelectedPlatform, numOutputs, setNumOutputs }) => (
   <div className='flex items-center justify-between gap-2'>
     <div className='flex items-center gap-2'>
-      <BrandIdentityButton
-        brandTheme={brandTheme}
-        isUsingBrandSettings={isUsingBrandSettings}
-        isUsingBrandColors={isUsingBrandColors}
-        setIsUsingBrandSettings={setIsUsingBrandSettings}
-        setIsUsingBrandColors={setIsUsingBrandColors}
-      />
       <AspectRatioButton selectedPlatform={selectedPlatform} setSelectedAspectRatio={setSelectedAspectRatio} setSelectedPlatform={setSelectedPlatform} />
       <OutputsButton numOutputs={numOutputs} setNumOutputs={setNumOutputs} />
     </div>
+    {user && user.credits !== undefined && (
+      <div className='flex items-center gap-2 px-3 py-2 rounded-md'>
+        <FaCoins size='1.1rem' />
+        <span className='text-sm dark:text-white whitespace-nowrap'>Credits: {user.credits} </span>
+      </div>
+    )}
   </div>
 );

@@ -3,7 +3,7 @@ import { type DeleteOldGeneratedImagesJob } from 'wasp/server/jobs';
 export const deleteOldGeneratedImagesWorker: DeleteOldGeneratedImagesJob<never, void> = async (_args, context) => {
   try {
     console.log('Running deleteOldGeneratedImagesWorker');
-    const thresholdDate = new Date(Date.now() - 23 * 60 * 60 * 1000);
+    const thresholdDate = new Date(Date.now() - 1 * 60 * 60 * 1000);
 
     const imagesToDelete = await context.entities.GeneratedImageData.findMany({
       where: {

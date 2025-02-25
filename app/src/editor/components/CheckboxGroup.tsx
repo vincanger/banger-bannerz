@@ -59,7 +59,7 @@ const CheckboxGroup: FC<CheckboxGroupProps> = ({
       <label className="mb-1 block text-sm font-medium text-gray-700">
         {label}
         <span className="ml-1 text-xs text-gray-500">
-          ({description}) - Choose up to {maxSelections}
+          ({description})
         </span>
       </label>
       <div className="mt-2 grid grid-cols-2 gap-2">

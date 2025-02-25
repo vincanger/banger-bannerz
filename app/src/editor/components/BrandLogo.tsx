@@ -61,7 +61,7 @@ const BrandLogo: React.FC = () => {
   };
 
   return (
-    <div className='p-4 border rounded-md mb-4'>
+    <div className='p-4'>
       <h2 className='text-xl font-semibold mb-2'>Brand Logo</h2>
       {brandTheme?.logoUrl ? (
         <img src={brandTheme.logoUrl} alt='Brand Logo' className='w-32 h-32 object-cover rounded-full mb-2' />

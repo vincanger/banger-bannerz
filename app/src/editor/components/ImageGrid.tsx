@@ -13,14 +13,15 @@ type ImageGridProps = {
   images: GeneratedImageDataWithTemplate[];
 };
 
-function getHoursUntilDeletion(createdAt: Date): number {
+function getMinutesUntilDeletion(createdAt: Date): number {
   const now = new Date();
-  const hoursLeft = 23 - (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
-  return Math.max(0, Math.round(hoursLeft));
+  const minutesLeft = 60 - (now.getTime() - createdAt.getTime()) / (1000 * 60);
+  return Math.max(0, Math.round(minutesLeft));
 }
 
 export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
   const [enlargedImage, setEnlargedImage] = useState<GeneratedImageData | null>(null);
+  const [isImageStoring, setIsImageStoring] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const { id: imageId } = useParams();
@@ -44,7 +45,7 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
               </button>
               {!image.saved && (
                 <div className={cn('absolute top-2 right-2 flex items-center bg-gray-500 bg-opacity-50 text-white text-xs px-2 py-1 rounded-full text-white')}>
-                  Deletes in {getHoursUntilDeletion(image.createdAt)} hrs {getHoursUntilDeletion(image.createdAt) <= 2 && <FaExclamationTriangle className='ml-2 text-yellow-400' />}
+                  Deletes in {getMinutesUntilDeletion(image.createdAt)} mins {getMinutesUntilDeletion(image.createdAt) <= 15 && <FaExclamationTriangle className='ml-2 text-yellow-400' />}
                 </div>
               )}
             </div>
@@ -56,21 +57,28 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                 <button
                   onClick={async () => {
                     try {
+                      setIsImageStoring(image.id);
                       await saveGeneratedImageData({ id: image.id });
                       toast.success('Image saved successfully');
                     } catch (error) {
                       console.error('Failed to save image:', error);
                       toast.error('Failed to save image');
+                    } finally {
+                      setIsImageStoring(null);
                     }
                   }}
-                  disabled={image.saved}
+                  disabled={image.saved || isImageStoring === image.id}
                   className={cn('flex flex-col items-center gap-1', {
-                    'opacity-50 cursor-not-allowed': image.saved,
+                    'opacity-50 cursor-not-allowed': image.saved || isImageStoring === image.id,
                   })}
-                  title={'Prevent image from being deleted after 24 hours'}
+                  title={'Prevent image from being deleted after 1 hour'}
                 >
                   <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
-                    <FaSave className='w-4 h-4' />
+                    {isImageStoring === image.id ? (
+                      <div className="w-4 h-4 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <FaSave className='w-4 h-4' />
+                    )}
                   </div>
                   <span className='text-xs text-gray-600 text-center w-16'>Store Image</span>
                 </button>

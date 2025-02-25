@@ -133,7 +133,12 @@ export const ImageOverlay: FC = () => {
 
   useEffect(() => {
     if (!canvasRef.current || !proxiedImageUrl || !imageData) return;
-
+    
+    // Get the dark overlay color from brand theme if available
+    const darkColor = brandThemeSettings?.colorScheme?.length 
+      ? getDarkestColor(brandThemeSettings.colorScheme) 
+      : darkOverlayColor;
+    
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
       width: TARGET_WIDTH,
       height: TARGET_HEIGHT,
@@ -232,7 +237,7 @@ export const ImageOverlay: FC = () => {
         top: -1,
         width: overlayWidth + 2,
         height: TARGET_HEIGHT + 2,
-        fill: darkOverlayColor,
+        fill: darkColor,
         selectable: true,
         hasControls: true,
         name: 'darkOverlay',
@@ -401,15 +406,15 @@ export const ImageOverlay: FC = () => {
       fabricCanvas.off('selection:updated', handleObjectSelection);
       fabricCanvas.off('selection:cleared');
     };
-  }, [proxiedImageUrl, imageData]);
+  }, [proxiedImageUrl, imageData, brandThemeSettings]);
 
   useEffect(() => {
-    if (!isDarkInitialized && !!brandThemeSettings && brandThemeSettings?.colorScheme?.length > 0) {
+    if (brandThemeSettings?.colorScheme?.length && brandThemeSettings.colorScheme.length > 0) {
       const darkest = getDarkestColor(brandThemeSettings.colorScheme);
       setDarkOverlayColor(darkest);
       setIsDarkInitialized(true);
     }
-  }, [brandThemeSettings, isDarkInitialized]);
+  }, [brandThemeSettings]);
 
   // New effect to update overlay colors without reinitializing the canvas
   useEffect(() => {
@@ -632,13 +637,12 @@ export const ImageOverlay: FC = () => {
       }
     };
 
-    // Commented out for debugging:
-    // document.addEventListener('mousedown', handleClickOutside);
+    // Uncomment these lines to enable the click outside handler
+    document.addEventListener('mousedown', handleClickOutside);
 
-    // Commented out cleanup:
-    // return () => {
-    //   document.removeEventListener('mousedown', handleClickOutside);
-    // };
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [canvas]);
 
   // Note: Remember to restore this functionality once debugging is complete.

@@ -83,7 +83,7 @@ export const ThemeSettings: FC<ThemeSettingsProps> = ({ onSubmit }) => {
 
   return (
     <form className='p-4'>
-      <h2 className='my-4 text-lg font-semibold text-gray-900'>Preferred Image Settings</h2>
+      <h2 className='text-xl font-semibold text-gray-900'>Preferred Image Settings</h2>
 
       {/* <CheckboxGroup
         label='Image Style'

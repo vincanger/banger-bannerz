@@ -18,19 +18,19 @@ interface PaymentPlanCard {
 export const paymentPlanCards: Record<PaymentPlanId, PaymentPlanCard> = {
   [PaymentPlanId.Credits30]: {
     name: prettyPaymentPlanName(PaymentPlanId.Credits30),
-    price: '$3.00',
+    price: '$2.20',
     description: 'Great for testing',
     features: ['Generate 30 images', 'No expiration date'],
   },
   [PaymentPlanId.Credits300]: {
     name: prettyPaymentPlanName(PaymentPlanId.Credits300),
-    price: '$20.00',
+    price: '$19.00',
     description: 'Best deal!',
     features: ['Generate 300 images', 'No expiration date', 'Priority support'],
   },
   [PaymentPlanId.Credits100]: {
     name: prettyPaymentPlanName(PaymentPlanId.Credits100),
-    price: '$9.00',
+    price: '$7.00',
     description: 'For bloggers and content creators',
     features: ['Generate 100 images', 'No expiration date'],
   },

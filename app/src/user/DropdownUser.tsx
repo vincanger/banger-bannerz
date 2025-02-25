@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CgProfile } from 'react-icons/cg';
 import { UserMenuItems } from './UserMenuItems';
 import { cn } from '../client/cn';
+import { FaCoins } from 'react-icons/fa';
 
 const DropdownUser = ({ user }: { user: Partial<User> }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -35,24 +36,17 @@ const DropdownUser = ({ user }: { user: Partial<User> }) => {
   });
 
   return (
-    <div className='relative'>
-      <button
-        ref={trigger}
-        onClick={toggleDropdown}
-        className='flex items-center gap-4 duration-300 ease-in-out text-gray-900 hover:text-yellow-500'
-      >
+    <div className='relative flex items-center'>
+      <button ref={trigger} onClick={toggleDropdown} className='flex items-center gap-4 duration-300 ease-in-out text-gray-900 hover:text-yellow-500'>
         <CgProfile size='1.5rem' className='mt-[0.1rem] dark:text-white' />
       </button>
 
       {/* <!-- Dropdown --> */}
       <div
         ref={dropdown}
-        className={cn(
-          'absolute left-0 z-50 bottom-full mb-4 flex w-62.5 flex-col rounded-lg border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark dark:text-white',
-          {
-            hidden: !dropdownOpen,
-          }
-        )}
+        className={cn('absolute left-0 z-50 bottom-full mb-4 flex w-62.5 flex-col rounded-lg border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark dark:text-white', {
+          hidden: !dropdownOpen,
+        })}
       >
         <UserMenuItems user={user} setMobileMenuOpen={toggleDropdown} />
       </div>
