@@ -11,7 +11,7 @@ import {
   getBannerIdeasFromTitle,
   useQuery,
   getGeneratedImageDataById,
-  generateBannerFromTemplate,
+  generateBannersFromTemplate,
   getBrandThemeSettings,
   getImageTemplateById,
   getRecentGeneratedImageData,
@@ -182,7 +182,7 @@ export const GenerateImagePage: FC = () => {
   const handleGenerateAndSetImages = async () => {
     try {
       setIsGeneratingImages(true);
-      setIsGeneratingImagesButtonText('Generating Images...');
+      setIsGeneratingImagesButtonText('Generating Image Prompts...');
       if (!user) {
         throw new ClientError(CLIENT_ERRORS.NO_USER);
       }
@@ -206,7 +206,9 @@ export const GenerateImagePage: FC = () => {
 
       const allGeneratedImages = [];
       for (const prompt of mostSuitablePromptsArray) {
-        const generatedImage = await generateBannerFromTemplate({
+        const imgNumber = mostSuitablePromptsArray.indexOf(prompt) + 1;
+        setIsGeneratingImagesButtonText(`Generating Image ${imgNumber} of ${mostSuitablePromptsArray.length}...`);
+        const generatedImage = await generateBannersFromTemplate({
           imageTemplateId: selectedImageTemplate.id,
           userPrompt: prompt.prompt,
           numOutputs: 1,
@@ -251,7 +253,7 @@ export const GenerateImagePage: FC = () => {
         throw new ClientError(CLIENT_ERRORS.NO_CREDITS);
       }
       setIsGeneratingImages(true);
-      const generatedImages = await generateBannerFromTemplate({
+      const generatedImages = await generateBannersFromTemplate({
         userPrompt,
         imageTemplateId: selectedImageTemplate.id,
         numOutputs,
@@ -464,7 +466,7 @@ export const GenerateImagePage: FC = () => {
                 className='flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50'
               >
                 {isGeneratingAdditionalVisualElements ? <FaSpinner className='h-4 w-4 animate-spin' /> : <FaLightbulb className='h-4 w-4' />}
-                <span>Get Different Ideas</span>
+                <span>Get More Ideas</span>
               </button>
             </div>
 

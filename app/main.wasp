@@ -181,8 +181,8 @@ query getImageTemplateById {
   entities: [User, ImageTemplate]
 }
 
-action generateBannerFromTemplate {
-  fn: import { generateBannerFromTemplate } from "@src/banner/operations",
+action generateBannersFromTemplate {
+  fn: import { generateBannersFromTemplate } from "@src/banner/operations",
   entities: [User, GeneratedImageData, ImageTemplate, BrandTheme]
 }
 

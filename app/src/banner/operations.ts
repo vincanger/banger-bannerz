@@ -10,7 +10,7 @@ import type {
   SaveGeneratedImageData,
   SaveBrandThemeSettings,
   GetBrandThemeSettings,
-  GenerateBannerFromTemplate,
+  GenerateBannersFromTemplate,
   GetImageTemplates,
   GetImageTemplateById,
   SaveBrandLogo,
@@ -29,7 +29,7 @@ import fetch from 'node-fetch';
 import FormData from 'form-data';
 import Replicate from 'replicate';
 import { v4 as uuidv4 } from 'uuid';
-import { HttpError } from 'wasp/server';
+import { HttpError, prisma } from 'wasp/server';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
 import OpenAI from 'openai';
 import { getUploadFileSignedURLFromS3 } from '../file-upload/s3Utils';
@@ -434,36 +434,31 @@ export const generateAndRefinePrompts: GenerateAndRefinePrompts<
   if (!context.user) {
     throw new HttpError(401);
   }
-  
+
   if (context.user.credits < numOutputs) {
     throw new HttpError(402, 'You do not have enough credits to generate images');
   }
 
-  
-  try {
-    const result = await context.entities.User.update({
-      where: { 
-        id: context.user.id,
-        credits: { gte: numOutputs }
-      },
-      data: { credits: { decrement: numOutputs } },
-    });
-    
-    if (!result) {
-      throw new HttpError(402, 'Insufficient credits');
-    }
-    
-    const { promptArray } = await generatePromptFromTitle({ title, imageTemplateId, isUsingBrandSettings, isUsingBrandColors, numOutputs, mainIdeas, visualElements }, context);
-    return await returnPromptsMatchingStyleGuidelines({ promptArray, title, mainIdeas, numOutputs, userSubmittedVisualElements: visualElements });
-  } catch (error: any) {
-    if (error?.statusCode !== 402 && context.user) {
-      await context.entities.User.update({
-        where: { id: context.user.id },
-        data: { credits: { increment: numOutputs } },
-      });
-    }
-    throw error;
-  }
+  const { promptArray } = await generatePromptFromTitle(
+    {
+      title,
+      imageTemplateId,
+      isUsingBrandSettings,
+      isUsingBrandColors,
+      numOutputs,
+      mainIdeas,
+      visualElements,
+    },
+    context
+  );
+
+  return await returnPromptsMatchingStyleGuidelines({
+    promptArray,
+    title,
+    mainIdeas,
+    numOutputs,
+    userSubmittedVisualElements: visualElements,
+  });
 };
 
 export const generatePromptFromTitle: GeneratePromptFromTitle<
@@ -473,53 +468,52 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
   if (!context.user) {
     throw new HttpError(401);
   }
-  
-  try {
-    if (openai instanceof Error) {
-      throw openai;
-    }
 
-    const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
-    if (!imageTemplate) {
-      throw new HttpError(400, 'Image template not found');
-    }
+  if (openai instanceof Error) {
+    throw openai;
+  }
 
-    let brandTheme: BrandTheme | null = null;
-    let colorPalettePrompt;
-    let brandMoodPrompt = 'The image should have a mood of "whimsical", "energetic", or "dramatic"';
-    if (isUsingBrandSettings || isUsingBrandColors) {
-      brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
-    }
-    if (isUsingBrandColors) {
-      const colorPaletteString = brandTheme?.colorScheme.join(', ');
-      console.log('colorPaletteString from brandTheme: ', colorPaletteString);
-      if (colorPaletteString) {
-        const colorPaletteNames = await generateColorPaletteStrFromHexCodes({ hexCodes: colorPaletteString });
-        console.log('colorPaletteNames: ', colorPaletteNames);
-        colorPalettePrompt = `The image prompt should use this color palette: ${colorPaletteNames}.`;
-      }
-    }
-    if (isUsingBrandSettings) {
-      brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
-    }
+  const imageTemplate = await context.entities.ImageTemplate.findUniqueOrThrow({ where: { id: imageTemplateId } });
+  if (!imageTemplate) {
+    throw new HttpError(400, 'Image template not found');
+  }
 
-    numOutputs = numOutputs * 2;
+  let brandTheme: BrandTheme | null = null;
+  let colorPalettePrompt;
+  let brandMoodPrompt = 'The image should have a mood of "whimsical", "energetic", or "dramatic"';
+  if (isUsingBrandSettings || isUsingBrandColors) {
+    brandTheme = await context.entities.BrandTheme.findFirst({ where: { userId: context.user.id } });
+  }
+  if (isUsingBrandColors) {
+    const colorPaletteString = brandTheme?.colorScheme.join(', ');
+    console.log('colorPaletteString from brandTheme: ', colorPaletteString);
+    if (colorPaletteString) {
+      const colorPaletteNames = await generateColorPaletteStrFromHexCodes({ hexCodes: colorPaletteString });
+      console.log('colorPaletteNames: ', colorPaletteNames);
+      colorPalettePrompt = `The image prompt should use this color palette: ${colorPaletteNames}.`;
+    }
+  }
+  if (isUsingBrandSettings) {
+    brandMoodPrompt = `The image should have a mood of ${brandTheme?.mood.join(', ')}.`;
+  }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `
+  numOutputs = numOutputs * 2;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: `
           You are an expert blog and social media image prompt engineer. 
           You will be given a title of a post, along with the posts's main concepts, some suggested visual elements, and an example prompt based on the image style. 
           Your job is to create image generation prompts to accompany the post by following these style guidelines: ${styleGuidelines}
           For each visual element idea, create two different prompts that include the visual element idea in it.
           Use the example prompt as a guide for how to formulate the prompts. `,
-        },
-        {
-          role: 'user',
-          content: `
+      },
+      {
+        role: 'user',
+        content: `
           Create ${numOutputs === 1 ? 'an image prompt' : `${numOutputs} image prompts`} for a social media or blog post with the title: ${title}.
           Use this brainstorming list of the post's main concepts and visual elements to create the prompts: ${mainIdeas} ${visualElements
             .map((visualElement, idx) => `${idx + 1}. ${visualElement.visualElement} (uuid: ${visualElement.visualElementId}) ${visualElement.visualElementDescription ?? ''}`)
@@ -528,58 +522,55 @@ export const generatePromptFromTitle: GeneratePromptFromTitle<
           ${brandMoodPrompt ? `. ${brandMoodPrompt}` : ''}
           Here is the image style being generated: ${imageTemplate.description ?? imageTemplate.name}.
           Here is the example prompt: ${imageTemplate.exampleImagePrompt}`,
-        },
-      ],
-      tools: [
-        {
-          type: 'function',
-          function: {
-            name: 'generateImagePrompts',
-            description: `Generates ${numOutputs === 1 ? `${numOutputs} image prompt` : `${numOutputs} image prompts`} for a social media or blog post`,
-            parameters: {
-              type: 'object',
-              properties: {
-                promptArray: {
-                  type: 'array',
-                  description: `an array of ${numOutputs === 1 ? '1 image generation prompt' : `${numOutputs} image generation prompts`}`,
-                  items: {
-                    type: 'object',
-                    properties: {
-                      prompt: {
-                        type: 'string',
-                        description: 'the image generation prompt',
-                      },
-                      visualElement: {
-                        type: 'string',
-                        description: 'the visual element idea that is included in the prompt',
-                      },
-                      visualElementId: {
-                        type: 'string',
-                        description: 'the uuid of the visual element idea that is included in the prompt',
-                      },
+      },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'generateImagePrompts',
+          description: `Generates ${numOutputs === 1 ? `${numOutputs} image prompt` : `${numOutputs} image prompts`} for a social media or blog post`,
+          parameters: {
+            type: 'object',
+            properties: {
+              promptArray: {
+                type: 'array',
+                description: `an array of ${numOutputs === 1 ? '1 image generation prompt' : `${numOutputs} image generation prompts`}`,
+                items: {
+                  type: 'object',
+                  properties: {
+                    prompt: {
+                      type: 'string',
+                      description: 'the image generation prompt',
                     },
-                    required: ['prompt', 'visualElement', 'visualElementId'],
+                    visualElement: {
+                      type: 'string',
+                      description: 'the visual element idea that is included in the prompt',
+                    },
+                    visualElementId: {
+                      type: 'string',
+                      description: 'the uuid of the visual element idea that is included in the prompt',
+                    },
                   },
+                  required: ['prompt', 'visualElement', 'visualElementId'],
                 },
               },
-              required: ['promptArray'],
             },
+            required: ['promptArray'],
           },
         },
-      ],
-      tool_choice: { type: 'function', function: { name: 'generateImagePrompts' } },
-    });
+      },
+    ],
+    tool_choice: { type: 'function', function: { name: 'generateImagePrompts' } },
+  });
 
-    const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
-    console.log('result: ', result);
-    if (!result) {
-      throw new HttpError(500, 'Bad response from OpenAI');
-    }
-
-    return JSON.parse(result);
-  } catch (error: any) {
-    throw error;
+  const result = completion.choices[0].message.tool_calls?.[0].function.arguments;
+  console.log('result: ', result);
+  if (!result) {
+    throw new HttpError(500, 'Bad response from OpenAI');
   }
+
+  return JSON.parse(result);
 };
 
 export const generatePrompts: GeneratePrompts<{ initialPrompt: string }, { variations: { prompt: string }[] }> = async ({ initialPrompt }, context) => {
@@ -719,7 +710,7 @@ function generateSeed(): number {
   return Math.floor(Math.random() * 2147483647) + 1;
 }
 
-export const generateBannerFromTemplate: GenerateBannerFromTemplate<
+export const generateBannersFromTemplate: GenerateBannersFromTemplate<
   {
     imageTemplateId: ImageTemplate['id'];
     userPrompt: string;
@@ -730,11 +721,12 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
   },
   GeneratedImageDataWithTemplate[]
 > = async ({ imageTemplateId, userPrompt, numOutputs = 3, postTopic, aspectRatio = '21:9', seed }, context) => {
-  if (!context.user) {
+  const user = context.user;
+  if (!user) {
     throw new HttpError(401, 'User not found');
   }
 
-  if (context.user.credits < numOutputs) {
+  if (user.credits < numOutputs) {
     throw new HttpError(402, 'You do not have enough credits to generate images');
   }
 
@@ -751,61 +743,45 @@ export const generateBannerFromTemplate: GenerateBannerFromTemplate<
 
   console.log('combinedPrompt: ', combinedPrompt);
 
-  try {
-    const userWithCredits = await context.entities.User.update({
-      where: { 
-        id: context.user.id,
-        credits: { gte: numOutputs }
-      },
-      data: { credits: { decrement: numOutputs } },
-    });
-    
-    if (!userWithCredits) {
-      throw new HttpError(402, 'Insufficient credits');
-    }
+  const imageFileOutputs = await generateImageFromLora({
+    prompt: combinedPrompt,
+    loraWeights: imageTemplate.loraUrl,
+    seed: useSeed,
+    aspectRatio,
+    numOutputs,
+  });
 
-    const output = await generateImageFromLora({
-      prompt: combinedPrompt,
-      loraWeights: imageTemplate.loraUrl,
+  const decrementUserCredits = context.entities.User.update({
+    where: {
+      id: user.id,
+      credits: { gte: numOutputs },
+    },
+    data: { credits: { decrement: numOutputs } },
+  });
+
+  const createGeneratedImagesPrismaData = imageFileOutputs.map((file) => {
+    return {
+      userId: user.id,
+      url: file.url().href,
       seed: useSeed,
-      aspectRatio,
-      numOutputs,
-    });
+      postTopic,
+      userPrompt,
+      style: `flux-dev-lora-${imageTemplate.loraUrl}`,
+      resolution: aspectRatio,
+      imageTemplateId: imageTemplate.id,
+    };
+  });
 
-    const generatedImages = await Promise.all(
-      output.map((file) =>
-        context.entities.GeneratedImageData.create({
-          data: {
-            url: file.url().href,
-            seed: useSeed,
-            postTopic,
-            userPrompt,
-            style: `flux-dev-lora-${imageTemplate.loraUrl}`,
-            resolution: aspectRatio,
-            imageTemplate: {
-              connect: { id: imageTemplate.id },
-            },
-            user: {
-              connect: { id: context.user!.id },
-            },
-          },
-          include: {
-            imageTemplate: true,
-          },
-        })
-      )
-    );
+  const createGeneratedImagesData = context.entities.GeneratedImageData.createManyAndReturn({
+    data: createGeneratedImagesPrismaData,
+    include: {
+      imageTemplate: true,
+    },
+  });
+  
+  const [_userWithCredits, generatedImages] = await prisma.$transaction([decrementUserCredits, createGeneratedImagesData]);
 
-    return generatedImages;
-  } catch (error: any) {
-    if (error?.statusCode !== 402 && context.user) {
-      await context.entities.User.update({
-        where: { id: context.user.id },
-        data: { credits: { increment: numOutputs } },
-      });
-    }
-    throw error;
-  }
+  return generatedImages;
 };
 
 export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, GeneratedImageDataWithTemplate[]> = async (_args, context) => {
@@ -817,12 +793,9 @@ export const getRecentGeneratedImageData: GetRecentGeneratedImageData<void, Gene
   oneHourAgo.setHours(oneHourAgo.getHours() - 1);
 
   return await context.entities.GeneratedImageData.findMany({
-    where: { 
+    where: {
       userId: context.user.id,
-      OR: [
-        { createdAt: { gte: oneHourAgo } },
-        { saved: true }
-      ]
+      OR: [{ createdAt: { gte: oneHourAgo } }, { saved: true }],
     },
     include: {
       imageTemplate: true,
