@@ -30,6 +30,7 @@ model User {
   files                     File[]
   brandThemes               BrandTheme[]
   generatedImageData        GeneratedImageData[]
+  sharedImages              SharedImage[]
 }
 
 model BrandTheme {
@@ -63,6 +64,8 @@ model GeneratedImageData {
 
   imageTemplateId           String?
   imageTemplate             ImageTemplate? @relation(fields: [imageTemplateId], references: [id])
+  
+  sharedImages              SharedImage[]
 }
 
 model ImageTemplate {
@@ -167,4 +170,21 @@ model ContactFormMessage {
   content                   String
   isRead                    Boolean         @default(false)
   repliedAt                 DateTime?
+}
+
+model SharedImage {
+  id                        String          @id @default(uuid())
+  createdAt                 DateTime        @default(now())
+  expiresAt                 DateTime        @default(dbgenerated("NOW() + interval '7 days'"))
+  
+  token                     String          @unique
+  
+  generatedImageData        GeneratedImageData @relation(fields: [generatedImageDataId], references: [id])
+  generatedImageDataId      String
+  
+  sharedByUser              User            @relation(fields: [sharedByUserId], references: [id])
+  sharedByUserId            String
+  
+  title                     String?
+  views                     Int             @default(0)
 }

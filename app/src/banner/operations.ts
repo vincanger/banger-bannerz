@@ -1,4 +1,4 @@
-import type { BrandTheme, GeneratedImageData, ImageTemplate, User } from 'wasp/entities';
+import type { BrandTheme, GeneratedImageData, ImageTemplate, User, SharedImage } from 'wasp/entities';
 import type {
   GeneratePrompts,
   GeneratePromptFromImage,
@@ -8,6 +8,7 @@ import type {
   GetImageProxy,
   RemoveObjectFromImage,
   SaveGeneratedImageData,
+  DeleteGeneratedImageData,
   SaveBrandThemeSettings,
   GetBrandThemeSettings,
   GenerateBannersFromTemplate,
@@ -17,6 +18,9 @@ import type {
   GenerateAndRefinePrompts,
   GetBannerIdeasFromTitle,
   GenerateAdditionalVisualElements,
+  CreateSharedImage,
+  GetSharedImageByToken,
+  SaveSharedImageToLibrary,
 } from 'wasp/server/operations';
 import type { FileOutput } from 'replicate';
 import type { Prisma } from '@prisma/client';
@@ -921,6 +925,40 @@ export const saveGeneratedImageData: SaveGeneratedImageData<{ id: GeneratedImage
   });
 };
 
+export const deleteGeneratedImageData: DeleteGeneratedImageData<{ id: GeneratedImageData['id'] }, { success: boolean }> = async ({ id }, context) => {
+  if (!context.user) {
+    throw new HttpError(401, 'You must be logged in to delete an image');
+  }
+
+  // Check if the image exists and belongs to the user
+  const image = await context.entities.GeneratedImageData.findUnique({
+    where: { id },
+    include: { sharedImages: true }
+  });
+
+  if (!image) {
+    throw new HttpError(404, 'Image not found');
+  }
+
+  if (image.userId !== context.user.id) {
+    throw new HttpError(403, 'You can only delete your own images');
+  }
+
+  // Delete any shared images associated with this image
+  if (image.sharedImages && image.sharedImages.length > 0) {
+    await prisma.sharedImage.deleteMany({
+      where: { generatedImageDataId: id }
+    });
+  }
+
+  // Delete the image
+  await prisma.generatedImageData.delete({
+    where: { id }
+  });
+
+  return { success: true };
+};
+
 export const saveBrandThemeSettings: SaveBrandThemeSettings<{ brandTheme: Partial<BrandTheme> }, BrandTheme> = async ({ brandTheme }, context) => {
   if (!context.user) {
     throw new HttpError(401);
@@ -995,4 +1033,134 @@ export const saveBrandLogo: SaveBrandLogo<
     console.error('Error saving brand logo:', error);
     throw new HttpError(500, `Failed to save brand logo: ${error.message}`);
   }
+};
+
+// Shared Image Operations
+export const createSharedImage: CreateSharedImage<
+  { generatedImageDataId: string; title?: string },
+  { token: string; shareUrl: string }
+> = async ({ generatedImageDataId, title }, context) => {
+  if (!context.user) {
+    throw new HttpError(401, 'You must be logged in to share an image');
+  }
+
+  // Check if the image exists and belongs to the user
+  const image = await context.entities.GeneratedImageData.findUnique({
+    where: { id: generatedImageDataId },
+    include: { imageTemplate: true }
+  });
+
+  if (!image) {
+    throw new HttpError(404, 'Image not found');
+  }
+
+  if (image.userId !== context.user.id) {
+    throw new HttpError(403, 'You can only share your own images');
+  }
+
+  // Generate a unique token
+  const token = uuidv4().slice(0, 8);
+
+  // Create the shared image record
+  const sharedImage = await prisma.sharedImage.create({
+    data: {
+      token,
+      title: title || image.postTopic || 'Shared Image',
+      generatedImageData: { connect: { id: generatedImageDataId } },
+      sharedByUser: { connect: { id: context.user.id } },
+    },
+  });
+
+  // Generate the share URL
+  const baseUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+  const shareUrl = `${baseUrl}/share/${token}`;
+
+  return { token, shareUrl };
+};
+
+export type SharedImageWithGeneratedImageData = SharedImage & { generatedImageData: GeneratedImageData & { imageTemplate: ImageTemplate | null } };
+
+export const getSharedImageByToken: GetSharedImageByToken<
+  { token: string },
+  { sharedImage: SharedImageWithGeneratedImageData } | null
+> = async ({ token }, context) => {
+  // Find the shared image by token
+  const sharedImage = await prisma.sharedImage.findUnique({
+    where: { token },
+    include: {
+      generatedImageData: {
+        include: {
+          imageTemplate: true,
+        },
+      },
+      sharedByUser: {
+        select: {
+          id: true,
+          username: true,
+        },
+      },
+    },
+  });
+
+  if (!sharedImage) {
+    return null;
+  }
+
+  // Check if the shared image has expired
+  if (new Date() > sharedImage.expiresAt) {
+    return null;
+  }
+
+  // Increment the view count
+  await prisma.sharedImage.update({
+    where: { id: sharedImage.id },
+    data: { views: { increment: 1 } },
+  });
+
+  return { sharedImage };
+};
+
+export const saveSharedImageToLibrary: SaveSharedImageToLibrary<
+  { token: string },
+  { success: boolean; generatedImageId: string }
+> = async ({ token }, context) => {
+  if (!context.user) {
+    throw new HttpError(401, 'You must be logged in to save an image');
+  }
+
+  // Find the shared image by token
+  const sharedImage = await prisma.sharedImage.findUnique({
+    where: { token },
+    include: {
+      generatedImageData: true,
+    },
+  });
+
+  if (!sharedImage) {
+    throw new HttpError(404, 'Shared image not found');
+  }
+
+  // Check if the shared image has expired
+  if (new Date() > sharedImage.expiresAt) {
+    throw new HttpError(410, 'This shared image has expired');
+  }
+
+  // Create a copy of the image for the current user
+  const newImage = await prisma.generatedImageData.create({
+    data: {
+      url: sharedImage.generatedImageData.url,
+      seed: sharedImage.generatedImageData.seed,
+      style: sharedImage.generatedImageData.style,
+      resolution: sharedImage.generatedImageData.resolution,
+      saved: true, // Mark as saved by default
+      userPrompt: sharedImage.generatedImageData.userPrompt,
+      postTopic: sharedImage.generatedImageData.postTopic || sharedImage.title,
+      user: { connect: { id: context.user.id } },
+      imageTemplate: sharedImage.generatedImageData.imageTemplateId
+        ? { connect: { id: sharedImage.generatedImageData.imageTemplateId } }
+        : undefined,
+    },
+  });
+
+  return { success: true, generatedImageId: newImage.id };
 };

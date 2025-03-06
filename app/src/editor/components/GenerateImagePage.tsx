@@ -17,6 +17,7 @@ import {
   getRecentGeneratedImageData,
   generateAndRefinePrompts,
   generateAdditionalVisualElements,
+  saveSharedImageToLibrary,
 } from 'wasp/client/operations';
 import { ImageGrid } from './ImageGrid';
 import { Modal } from './Modal';
@@ -70,6 +71,8 @@ export const GenerateImagePage: FC = () => {
   const [selectedPlatform, setSelectedPlatform] = useState<keyof typeof PlatformAspectRatio>('Twitter Landscape');
   const [isGeneratingImagesButtonText, setIsGeneratingImagesButtonText] = useState('Generating...');
   const [userSubmittedVisualElementIdea, setUserSubmittedVisualElementIdea] = useState('');
+  const [sharedImageToken, setSharedImageToken] = useState<string | null>(null);
+  const [showSharedImageBanner, setShowSharedImageBanner] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const generateImageBy = searchParams.get('generateBy') as GenerateImageSource;
@@ -82,6 +85,35 @@ export const GenerateImagePage: FC = () => {
   const { data: recentImages } = useQuery(getRecentGeneratedImageData, undefined, { enabled: !isModalOpen });
 
   const navigate = useNavigate();
+
+  // Check for shared image data in localStorage
+  useEffect(() => {
+    const storedSharedImageToken = localStorage.getItem('sharedImageToken');
+    if (storedSharedImageToken) {
+      setSharedImageToken(storedSharedImageToken);
+      setShowSharedImageBanner(true);
+    }
+  }, []);
+
+  // Handle saving shared image to library when user logs in
+  useEffect(() => {
+
+    const handleSaveSharedImage = async () => {
+      if (user && sharedImageToken) {
+        try {
+          await saveSharedImageToLibrary({ token: sharedImageToken });
+          toast.success('Shared image saved to your library!');
+          // Clear the shared image token from localStorage
+          localStorage.removeItem('sharedImageToken');
+          setShowSharedImageBanner(false);
+        } catch (error) {
+          console.error('Failed to save shared image:', error);
+        } 
+      }
+    };
+
+    handleSaveSharedImage();
+  }, [sharedImageToken]);
 
   useEffect(() => {
     if (generateImageBy === 'prompt' && imageId) {
@@ -556,6 +588,34 @@ export const GenerateImagePage: FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Shared Image Banner */}
+      {showSharedImageBanner && (
+        <div className='w-full bg-yellow-50 border-b border-yellow-200 p-4 mb-6'>
+          <div className='max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4'>
+            <div>
+              <h3 className='font-medium text-yellow-800'>You viewed a shared image</h3>
+              <p className='text-yellow-700 text-sm'>{user ? 'The image has been saved to your library.' : 'Log in to save this image to your library.'}</p>
+            </div>
+            <div className='flex gap-2'>
+              {!user && (
+                <button onClick={() => navigate(routes.LoginRoute.to)} className='px-3 py-1 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600 transition-colors'>
+                  Log In
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setShowSharedImageBanner(false);
+                  localStorage.removeItem('sharedImageToken');
+                }}
+                className='px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300 transition-colors'
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Editor>
   );
 };

@@ -154,6 +154,11 @@ action saveGeneratedImageData {
   entities: [User, GeneratedImageData]
 }
 
+action deleteGeneratedImageData {
+  fn: import { deleteGeneratedImageData } from "@src/banner/operations",
+  entities: [User, GeneratedImageData]
+}
+
 action saveBrandThemeSettings {
   fn: import { saveBrandThemeSettings } from "@src/banner/operations",
   entities: [User, BrandTheme]
@@ -209,6 +214,27 @@ query getRecentGeneratedImageData {
 query getGeneratedImageDataById {
   fn: import { getGeneratedImageDataById } from "@src/banner/operations",
   entities: [User, GeneratedImageData]
+}
+
+// Shared Image Operations
+action createSharedImage {
+  fn: import { createSharedImage } from "@src/banner/operations",
+  entities: [User, GeneratedImageData, SharedImage]
+}
+
+query getSharedImageByToken {
+  fn: import { getSharedImageByToken } from "@src/banner/operations",
+  entities: [SharedImage, GeneratedImageData, ImageTemplate]
+}
+
+action saveSharedImageToLibrary {
+  fn: import { saveSharedImageToLibrary } from "@src/banner/operations",
+  entities: [User, GeneratedImageData, SharedImage]
+}
+
+route SharedImageRoute { path: "/share/:token", to: SharedImagePage }
+page SharedImagePage {
+  component: import { SharedImagePage } from "@src/editor/components/SharedImagePage"
 }
 //#endregion
 

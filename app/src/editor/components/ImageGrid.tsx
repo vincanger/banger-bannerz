@@ -4,9 +4,9 @@ import type { GeneratedImageData } from 'wasp/entities';
 import { cn } from '../../client/cn';
 import { FC, useState } from 'react';
 import { routes } from 'wasp/client/router';
-import { FaHashtag, FaEdit, FaExpand, FaSave, FaDownload, FaExclamationTriangle } from 'react-icons/fa';
+import { FaHashtag, FaEdit, FaExpand, FaSave, FaDownload, FaExclamationTriangle, FaShare, FaTrash } from 'react-icons/fa';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { saveGeneratedImageData } from 'wasp/client/operations';
+import { saveGeneratedImageData, createSharedImage, deleteGeneratedImageData } from 'wasp/client/operations';
 import { toast } from 'react-hot-toast';
 
 type ImageGridProps = {
@@ -22,16 +22,68 @@ function getMinutesUntilDeletion(createdAt: Date): number {
 export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
   const [enlargedImage, setEnlargedImage] = useState<GeneratedImageData | null>(null);
   const [isImageStoring, setIsImageStoring] = useState<string | null>(null);
+  const [isImageSharing, setIsImageSharing] = useState<string | null>(null);
+  const [isImageDeleting, setIsImageDeleting] = useState<string | null>(null);
+  const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
   const navigate = useNavigate();
 
   const { id: imageId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const imagePromptImageId = searchParams.get('imageId');
 
+  // Function to handle sharing an image
+  const handleShareImage = async (image: GeneratedImageDataWithTemplate) => {
+    try {
+      setIsImageSharing(image.id);
+      const { shareUrl } = await createSharedImage({ 
+        generatedImageDataId: image.id,
+        title: image.postTopic ?? undefined
+      });
+      
+      // Copy the share URL to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('Share link copied to clipboard!');
+    } catch (error) {
+      console.error('Failed to share image:', error);
+      toast.error('Failed to share image');
+    } finally {
+      setIsImageSharing(null);
+    }
+  };
+
+  // Function to handle deleting an image
+  const handleDeleteImage = async (image: GeneratedImageDataWithTemplate) => {
+    try {
+      // Confirm deletion
+      if (!window.confirm('Are you sure you want to delete this image?')) {
+        return;
+      }
+      
+      setIsImageDeleting(image.id);
+      
+      // Call the server operation to delete the image
+      const result = await deleteGeneratedImageData({ id: image.id });
+      
+      if (result.success) {
+        // Add to local deleted images list for immediate UI update
+        setDeletedImageIds(prev => [...prev, image.id]);
+        toast.success('Image deleted successfully');
+      }
+    } catch (error) {
+      console.error('Failed to delete image:', error);
+      toast.error('Failed to delete image');
+    } finally {
+      setIsImageDeleting(null);
+    }
+  };
+
+  // Filter out deleted images
+  const filteredImages = images.filter(image => !deletedImageIds.includes(image.id));
+
   return (
     <>
       <div className='flex flex-col items-center'>
-        {images.map((image, index) => (
+        {filteredImages.map((image, index) => (
           <div key={image.url + index} className={`flex w-full items-center justify-center gap-4 p-4 hover:bg-gray-50 group ${imageId === image.id ? 'bg-yellow-50' : ''}`}>
             {/* Thumbnail */}
             <div className='relative w-64 h-32 flex-shrink-0 mr-4'>
@@ -144,6 +196,36 @@ export const ImageGrid: FC<ImageGridProps> = ({ images }) => {
                     <FaHashtag className='w-4 h-4' />
                   </div>
                   <span className='text-xs text-gray-600 text-center w-16'>Create OG Image</span>
+                </button>
+                <button
+                  onClick={() => handleShareImage(image)}
+                  disabled={isImageSharing === image.id}
+                  className='flex flex-col items-center gap-1'
+                  title='Share this image with others'
+                >
+                  <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-yellow-500 hover:text-white transition-colors duration-200'>
+                    {isImageSharing === image.id ? (
+                      <div className="w-4 h-4 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <FaShare className='w-4 h-4' />
+                    )}
+                  </div>
+                  <span className='text-xs text-gray-600 text-center w-16'>Share</span>
+                </button>
+                <button
+                  onClick={() => handleDeleteImage(image)}
+                  disabled={isImageDeleting === image.id}
+                  className='flex flex-col items-center gap-1'
+                  title='Delete this image'
+                >
+                  <div className='p-2 rounded-full bg-white text-gray-800 hover:bg-red-500 hover:text-white transition-colors duration-200'>
+                    {isImageDeleting === image.id ? (
+                      <div className="w-4 h-4 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <FaTrash className='w-4 h-4' />
+                    )}
+                  </div>
+                  <span className='text-xs text-gray-600 text-center w-16'>Delete</span>
                 </button>
               </div>
             </div>
